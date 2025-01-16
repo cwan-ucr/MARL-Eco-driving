@@ -1,0 +1,14 @@
+<configuration>
+    <input>
+        <net-file value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network\test.net.xml"/>
+        <route-files value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network\test.rou.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="600"/>
+        <step-length value="1.0"/>
+    </time>
+    <output>
+        <fcd-output value="fcd_output.xml" />
+    </output>  
+</configuration>
