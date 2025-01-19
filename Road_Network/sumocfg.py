@@ -104,8 +104,8 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, CF_model, seed):
 
         print("""<routes>
 
-        <vType id = 'CAV' vclass="evehicle" tau="1.0" accel="4.0" decel="4.0" color="#00FF00" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
-        <vType id = 'HDV' vclass="evehicle" tau="1.5" accel="4.0" decel="4.0" color="#FF0000" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
+        <vType id = 'CAV' vclass="evehicle" tau="1.0" accel="4.0" decel="4.0" color="#00FF00" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
+        <vType id = 'HDV' vclass="evehicle" tau="1.5" accel="4.0" decel="4.0" color="#FF0000" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
 
         <route id="N2S" edges="NS -SN"/>
         <route id="S2N" edges="SN -NS"/>

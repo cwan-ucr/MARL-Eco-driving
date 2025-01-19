@@ -10,6 +10,8 @@ def trajectories_plot(ep_i,
                       x_max,
                       time_step,
                       CAV_PR,
+                      CF_model,
+                      control_strategy,
                       lane_name,
                       lane_length,
                       light):
@@ -116,8 +118,8 @@ def trajectories_plot(ep_i,
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(200, 200 + lane_length_i)
 
-
-    output_dir = r'F:\MasterDegreeCourse\Master Degree Thesis\Codes\Part_2\Output_trajectories'
+    file = '{}_{}'.format(control_strategy, CF_model)
+    output_dir = r'F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Output_trajectories\{}'.format(file)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     # 保存图片

@@ -1,5 +1,7 @@
 import numpy as np
 import traci
+from fontTools.merge.util import current_time
+
 
 class SUMOEnv:
     def __init__(self,
@@ -84,6 +86,7 @@ class SUMOEnv:
         # 无量纲时间步
         self.undemon_time_step = self.time_step / self.cycle_length
         self.undemon_dangerous_time = self.dangerous_time / self.cycle_length
+        self.undemon_end_lost_time = 2.0 / self.cycle_length
 
         # 评价指标初始化
         self.fuel_consumption = 0
@@ -111,10 +114,15 @@ class SUMOEnv:
         self.CAV_number = 0
 
         # 车道信息获取, 包括车道长度、最大速度
+        self.light.reset()
+
         for lane_id in range(self.num_lanes):
             entering_lane_name = self.entering_lanes[lane_id]
             conflict_lane_name = self.conflict_lanes[lane_id]
             departing_lane_name = self.departing_lanes[lane_id]
+
+            self.light.cycle_pass_count.append([])
+            self.light.lane_pass_count.append([])
 
             self.lanes_entering_length.append(
                 traci.lane.getLength(entering_lane_name))
@@ -165,7 +173,7 @@ class SUMOEnv:
         return states, veh_names, veh_types
 
 
-    def step(self, actions, veh_names, veh_types):
+    def step(self, states, actions, veh_names, veh_types):
         # 根据动作更新环境状态，进口道
         current_lane_index = veh_names.copy()
         for leg_i in range(veh_names.__len__()):
@@ -198,7 +206,7 @@ class SUMOEnv:
                                                          action_i[0].item(),
                                                          ego_speed)
 
-                if traci.vehicle.getTypeID(veh_name_i) == 'CAV' and self.strategy != 'IDM' and self.iteration > self.expert_episode:
+                if traci.vehicle.getTypeID(veh_name_i) == 'CAV' and self.strategy != 'SUMO' and self.iteration > self.expert_episode:
                     traci.vehicle.setSpeed(veh_name_i,
                                            ego_speed + action_i[0].item() * self.time_step)
                     traci.vehicle.changeLane(veh_name_i, target_lane_id, 1.0)
@@ -276,7 +284,7 @@ class SUMOEnv:
         # POMDP
         #reward = self.calculate_reward(self.directions_veh_names, action_Env)
         # MDP
-        reward, done = self.calculate_reward(veh_names, veh_types, action_Env, actions)
+        reward, done = self.calculate_reward(veh_names, veh_types, states, action_Env, actions)
 
         return (self.directions_state,
                 self.directions_updated_state,
@@ -287,10 +295,11 @@ class SUMOEnv:
                 self.directions_veh_types)
 
 
-    def calculate_reward(self, veh_names, veh_types, action_Env, actions):
+    def calculate_reward(self, veh_names, veh_types, states_last, action_Env, actions):
         """
         :param veh_names: 车辆名称列表
         :param veh_types: 车辆类型列表, 0为普通车，1为自动驾驶车
+        :param states_last: 上一时刻状态向量
         :param action_Env: 环境反馈后的动作向量，考虑安全约束
         :param actions: actor输出的动作向量
         """
@@ -303,6 +312,7 @@ class SUMOEnv:
                                                    (leg_i,
                                                     veh_names[leg_i],
                                                     veh_types[leg_i],
+                                                    states_last[leg_i],
                                                     action_Env[leg_i],
                                                     actions[leg_i]))
 
@@ -401,7 +411,7 @@ class SUMOEnv:
         return np.array(state_leg,dtype=np.float32), vehicle_type_list
 
 
-    def get_leg_reward(self, leg_id, veh_names_leg_i, veh_types_leg_i, action_Env_leg_i, action_actor_leg_i):
+    def get_leg_reward(self, leg_id, veh_names_leg_i, veh_types_leg_i, states_last_leg_i, action_Env_leg_i, action_actor_leg_i):
         """
         获取当前进口道奖励
         :param leg_id: 进口道编号, 0: 'WE', 1: 'EW', 2: 'NS', 3: 'SN'
@@ -453,6 +463,7 @@ class SUMOEnv:
 
         position_leg_i = state_leg_i[:, 0] # 归一化车辆位置, position_i = x/lane_length
         speed_leg_i = state_leg_i[:, 2] + 1e-6 # 归一化车辆速度, speed_i = v/lane_max_speed
+        speed_last_leg_i = states_last_leg_i[:, 2] + 1e-6 # 归一化车辆速度, speed_i = v/lane_max_speed
         dx_leg_i = state_leg_i[:, 3] # 归一化间距, dx_i = dx/lane_length
         dv_leg_i = state_leg_i[:, 4] + 1e-6 # 归一化速度差(前车减后车), dv_i = dv/lane_max_speed
         acc_leg_i = action_Env_leg_i[:, 0] # 纵向加速度
@@ -464,7 +475,7 @@ class SUMOEnv:
 
         """------------------------------能耗奖励-----------------------------------"""
         # 计算能耗奖励: reward_energy_vehicle_i = 0.1 * (1 - exp(-0.001 * energy_i))
-        energy_leg_i = self.get_energy_consumption(speed_leg_i * max_speed, acc_leg_i)
+        energy_leg_i = self.get_energy_consumption( (speed_leg_i + speed_last_leg_i) * max_speed / 2, acc_leg_i)
         energy_reward_leg_i = -energy_leg_i * mask_leg_i
 
         """------------------------------速度奖励-----------------------------------"""
@@ -492,17 +503,24 @@ class SUMOEnv:
         safe_reward_leg_i[ttc_range_2] = -(self.TTC_max - ttc_leg_i[ttc_range_2]) / (self.TTC_max - self.TTC_min)
         safe_reward_leg_i = safe_reward_leg_i * mask_leg_i
 
-        r_g, r_v, r_f, r_s, r_c, r_t = self.reward_coefficient()
+        """------------------------------舒适度奖励-----------------------------------"""
+        # 计算舒适度奖励 reward_comfort_vehicle_i = -1 * (1 - exp(-0.001 * (speed_i - 1.0) ^ 2))
+        comfort_reward_leg_i = -(acc_leg_i / 4) ** 2 * mask_leg_i
+
+        r_g, r_v, r_f, r_s, r_c, r_u, r_t = self.reward_coefficient()
 
         reward_leg_i = (speed_reward_leg_i * r_v +
                         stop_reward_leg_i * r_s +
                         energy_reward_leg_i * r_f +
                         green_pass_reward_leg_i * r_g +
-                        safe_reward_leg_i * r_c) * (self.time_step)
+                        safe_reward_leg_i * r_c +
+                        comfort_reward_leg_i * r_u) * self.time_step
 
+        pass_leg_i = state_leg_i[:, 0] >= 1
         done_leg_i = (state_leg_i[:, 0] >= 1) & (mask_leg_i == 1)
 
-        # reward_leg_i = self.get_done_reward(reward_leg_i, done_leg_i, state_leg_i, mask_leg_i)
+        reward_leg_i = self.get_done_reward(reward_leg_i, pass_leg_i, state_leg_i[:, 1], mask_leg_i)
+        reward_leg_i = reward_leg_i / (mask_leg_i.sum()) if mask_leg_i.sum() > 0 else reward_leg_i
 
         # 指标计算
         ttc_count = (ttc_range_1 | ttc_range_2) * mask_leg_i.astype(np.bool)
@@ -511,10 +529,12 @@ class SUMOEnv:
         self.tet += ttc_count.sum() * self.time_step
         self.tit += (self.TTC_max - ttc_leg_i[ttc_count]).sum() * self.time_step
         self.total_travel_time += mask_leg_i.sum() * self.time_step
-        self.discharge_number += (state_leg_i[:, 0] >= 1).sum() * self.time_step
+        self.discharge_number += (pass_leg_i).sum()
         self.CAV_number += done_leg_i.sum()
 
-        return reward_leg_i / (mask_leg_i.sum()), done_leg_i, info
+
+
+        return reward_leg_i, done_leg_i, info
 
 
     def get_energy_consumption(self, v, a):
@@ -570,7 +590,7 @@ class SUMOEnv:
             flag_r = flag_r1 & flag_r2
 
             flag_y1 = (pass_time_ratio_leg_i < green_remain_ratio)  # 车辆通过时间小于剩余时间
-            flag_y2 = (pass_time_ratio_leg_i > (green_remain_ratio - self.undemon_dangerous_time)) # 车辆通过时间大于黄灯剩余时间-danger_time, 黄灯驶出
+            flag_y2 = (pass_time_ratio_leg_i > (green_remain_ratio - self.undemon_end_lost_time - self.undemon_dangerous_time)) # 车辆通过时间大于黄灯剩余时间-danger_time, 黄灯驶出
             flag_y = flag_y1 & flag_y2
 
             flag_g1 = (pass_time_ratio_leg_i > green_sw_ratio) # 车辆通过时间大于下一绿灯结束时间, 绿灯驶出
@@ -585,6 +605,7 @@ class SUMOEnv:
 
             flag_y1 = (pass_time_ratio_leg_i > (green_sw_ratio +
                                                 green_cycle_ratio -
+                                                self.undemon_end_lost_time -
                                                 self.undemon_dangerous_time)) # 车辆通过时间小于绿灯剩余时间+danger_time, 黄灯驶出
             flag_y2 = (pass_time_ratio_leg_i < (green_sw_ratio +
                                                 green_cycle_ratio))  # 车辆通过时间大于绿灯剩余时间, 黄灯驶出
@@ -595,25 +616,66 @@ class SUMOEnv:
             flag_g = flag_g1 & flag_g2
 
         green_pass_reward_leg_i[flag_r] = -1
-        green_pass_reward_leg_i[flag_y] = 0
-        green_pass_reward_leg_i[flag_g] = 0.1
+        green_pass_reward_leg_i[flag_y] = -1
+        green_pass_reward_leg_i[flag_g] = 0
 
         green_pass_reward_leg_i[pass_time_ratio_leg_i > 1] = -1
 
         return green_pass_reward_leg_i
 
 
-    def get_done_reward(self, reward, done, state, mask):
+    def get_done_reward(self, reward, pass_index, lane_index, mask):
         """
         根据终点状态计算终止奖励
         :param reward: 瞬时奖励
-        :param done: 终止状态
         :param state: 当前状态
         :param mask: 车辆类型
         :return: reward
         """
 
-        terminal_time = traci.simulation.getTime()
+        if pass_index.sum() < 1:
+            return reward
+
+        pass_lane = (lane_index[pass_index] * self.num_lanes).astype(np.int32)
+        done_reward = np.zeros(pass_lane.shape, dtype=np.float32)
+
+        current_time = traci.simulation.getTime()
+        current_cycle = int(current_time // self.cycle_length)
+
+
+        for i, lane_id in enumerate(pass_lane):
+
+            hist_pass = self.light.cycle_pass_count[lane_id]
+
+            if hist_pass.__len__() == 0:
+                desire_pass_time = current_cycle * self.cycle_length
+                pass_count = 0
+                case = 1.6
+            else:
+                last_pass = hist_pass[-1]
+                if last_pass[1] != current_cycle:
+                    desire_pass_time = current_cycle * self.cycle_length
+                    pass_count = 0
+                    case = 0.6
+                else:
+                    hist_pass = np.array(hist_pass)
+                    pass_count = (hist_pass[:, 1] == current_cycle).astype(np.float32).sum()
+                    desire_pass_time = current_cycle * self.cycle_length + self.light.saturated_headway * pass_count
+                    case = 0.6
+
+            desired_delta = current_time - desire_pass_time
+            if desired_delta < 0:
+                desired_delta = 0
+                print(current_time, desire_pass_time, pass_count, current_cycle)
+
+            done_reward[i] = case * np.exp(-desired_delta)
+
+            self.light.update_lane_pass_state(lane_id.item())
+
+        reward[pass_index] = done_reward
+
+
+        return reward * mask
 
     def get_vehicle_state(self, vehicle_name, lane_id, direction):
         """
@@ -776,17 +838,18 @@ class SUMOEnv:
     def reward_coefficient(self):
         """
         获取奖励系数: r_g → green_pass, r_v → velocity, r_f → fuel, r_s → stop, r_c → collision
-        :returns: r_g, r_v, r_f, r_s, r_c, r_total
+        :returns: r_g, r_v, r_f, r_s, r_c, r_u, r_total
         """
-        r_g = 1.0
+        r_g = 0.0
         r_v = 0.5
-        r_f = 0.0 * ( 1 / self.get_energy_consumption(np.array([18.0]), np.array([4.0])) )
+        r_f = 0.1 * ( 1 / self.get_energy_consumption(np.array([18.0]), np.array([4.0])) )
         r_s = 1.0
         r_c = 1.0
+        r_u = 0.2
 
         r_total = r_g + r_v + r_f + r_s + r_c
 
-        return r_g, r_v, r_f, r_s, r_c, r_total
+        return r_g, r_v, r_f, r_s, r_c, r_u, r_total
 
 
     def action_sampling(self):
@@ -804,14 +867,6 @@ class SUMOEnv:
         traci.close()
 
 
-# class Energy_consumption_model:
-#     def __init__(self):
-#         """
-#         创建能量消耗模型
-#         """
-#         self.energy_tpye = 0
-
-
 class light:
     def __init__(self):
         """
@@ -821,4 +876,20 @@ class light:
         self.yellow_duration = 0
         self.red_duration = 0
         self.cycle_length = 0
-        self.cycletime = 0
+        self.saturated_headway = 1.5
+        self.cycle_pass_count = []
+        self.lane_pass_count = []
+
+    def update_lane_pass_state(self, lane_index):
+
+        current_time = traci.simulation.getTime()
+        current_cycle = int(current_time // self.cycle_length)
+
+        pass_state = [current_time, current_cycle]
+
+        self.cycle_pass_count[lane_index].append(pass_state)
+
+    def reset(self):
+        self.cycle_pass_count = []
+        self.lane_pass_count = []
+

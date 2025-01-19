@@ -18,8 +18,8 @@ parser.add_argument('--device', type=str, default='cuda', help='running device: 
 parser.add_argument('--seed', type=int, default=2024, help='random seed')
 parser.add_argument('--training', type=bool, default=True, help='training or testing')
 parser.add_argument('--Env_name', type=str, default='SUMO_RL', help='name of simulation environment')
-parser.add_argument('--control_strategy', type=str, default='RL', help='Longitudinal control strategy for CAV, include IDM, and RL')
-parser.add_argument('--CF_model', type=str, default='IDM', help='choose the CF model, include Random, IDM and GLOSA')
+parser.add_argument('--control_strategy', type=str, default='SUMO', help='Longitudinal control strategy for CAV, include SUMO, and RL')
+parser.add_argument('--CF_model', type=str, default='IDM', help='choose the CF model, include Random, IDM, and GLOSA')
 parser.add_argument('--Need_transition_state', type=bool, default=True, help='whether need to transition state, True or False')
 
 # SUMO交通流参数设置
@@ -38,10 +38,10 @@ parser.add_argument('--TTC_min', type=float, default=0.8, help='Safety car-follo
 parser.add_argument('--TTC_max', type=float, default=1.6, help='Safety car-following time headway, in seconds')
 
 # RL训练设置
-parser.add_argument('--NN_reset', type=int, default=1000, help='Model reset at K-th episode, in iterations')
-parser.add_argument('--Max_episode', type=int, default=1020, help='Max training episode')
+parser.add_argument('--NN_reset', type=int, default=4000, help='Model reset at K-th episode, in iterations')
+parser.add_argument('--Max_episode', type=int, default=1000, help='Max training episode')
 parser.add_argument('--save_episode', type=int, default=100, help='Model saving interval, in iterations.')
-parser.add_argument('--expert_episode', type=int, default=20, help='Max pretraining episode')
+parser.add_argument('--expert_episode', type=int, default=0, help='Max pretraining episode')
 parser.add_argument('--Max_ep_steps', type=int, default=600, help='Max training steps per episode, in steps')
 parser.add_argument('--eval_interval', type=int, default=50, help='Model evaluating interval, trajectories plot, in episodes.')
 parser.add_argument('--Dynamic_target_entropy', type=bool, default=False, help='Whether need to dynamic target entropy TE = -dim(A_eff), True or False')
@@ -50,7 +50,7 @@ parser.add_argument('--action_dim', type=int, default=2, help='Action dim of eac
 
 # DNN 设置
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters)')
-parser.add_argument('--beta', type=float, default=0.2, help='Beta for the leaky_relu.')
+parser.add_argument('--beta', type=float, default=0.2, help='Beta for the leaky_relu')
 parser.add_argument('--hidden_dim', type=int, default=128, help='Hidden net width, s_dim-hidden_dim-hidden_dim-a_dim')
 parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate')
 
@@ -58,10 +58,10 @@ parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate')
 parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
 parser.add_argument('--grad_clip', type=float, default=5.0, help='Gradient clipping value')
 parser.add_argument('--policy_delay', type=int, default=2, help='Policy decay: update N times of critic then update actor, in steps')
-parser.add_argument('--actor_lr', type=float, default=1e-5, help='Learning rate of actor')
-parser.add_argument('--critic_lr', type=float, default=1e-4, help='Learning rate of critic')
+parser.add_argument('--actor_lr', type=float, default=3e-4, help='Learning rate of actor')
+parser.add_argument('--critic_lr', type=float, default=3e-4, help='Learning rate of critic')
 parser.add_argument('--alpha', type=float, default=0.12, help='Entropy coefficient')
-parser.add_argument('--alpha_lr', type=float, default=1e-4, help='Entropy coefficient')
+parser.add_argument('--alpha_lr', type=float, default=3e-4, help='Entropy coefficient')
 parser.add_argument('--tau', type=float, default=5e-3, help='Soft update value of Target Critic')
 parser.add_argument('--adaptive_alpha', type=bool, default=True, help='Use adaptive_alpha or Not')
 parser.add_argument('--buffer_size', type=int, default=100000, help='Capacity of replay buffer')
@@ -78,8 +78,6 @@ parent_path = os.path.dirname(curr_path)
 def run_simulations(env, agent, total_steps, ep_i, opt):
 
     # 初始化
-    states, veh_names, veh_types = env.reset()
-    done = False
     ep_reward = 0
     actor_loss = 0
     critic_loss = 0
@@ -87,6 +85,8 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
 
     ep_i_step = 0
     time_in = time.time()
+
+    states, veh_names, veh_types = env.reset()
 
     # 训练
     while traci.simulation.getTime() < opt.simulation_time \
@@ -107,7 +107,7 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
             mask[i] = mask_direction_i
 
             # 随机采样
-            if ep_i < opt.expert_episode and opt.training:
+            if ep_i < opt.expert_episode and opt.training and opt.CF_model == 'Random':
                 actions_direction_i = env.action_sampling()
                 actions[i] = actions_direction_i
                 continue
@@ -124,7 +124,7 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
          dones,
          rewards,
          veh_names_next,
-         veh_types_next) = env.step(actions, veh_names, veh_types)
+         veh_types_next) = env.step(states, actions, veh_names, veh_types)
 
         # 经验回放
         # add(self, state, Adj, mask, action, reward, state_next, Adj_next, mask_next, done):
@@ -188,6 +188,8 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
                           opt.simulation_time,
                           opt.time_step,
                           opt.CAV_PR,
+                          opt.CF_model,
+                          opt.control_strategy,
                           env.entering_lanes,
                           env.lanes_entering_length,
                           env.light)
@@ -273,6 +275,9 @@ def train(opt):
 
         env_seed += 1
         generate_cfg_file(time_step = opt.time_step)
+        if ep_i > opt.expert_episode and opt.control_strategy == 'RL':
+            opt.CF_model = 'IDM'
+
         generate_rou_file(opt.Max_ep_steps, opt.volume_per_leg, opt.CAV_PR, opt.CF_model, env_seed)
 
         (ep_reward,
@@ -317,12 +322,22 @@ def train(opt):
 
 if __name__ == "__main__":
 
-    training_curve = train(opt)
-    # 保存训练曲线数据: .csv文件，
-    np.savetxt('training_{}_CAVPR_{}_gamma_{}_dynamic_entropy_{}_eposide_{}.csv'
-              .format(opt.control_strategy,
-                      opt.CAV_PR,
-                      opt.gamma,
-                      opt.Dynamic_target_entropy,
-                      opt.Max_episode),
-                      np.array(training_curve),delimiter=',')
+    list = ['RL']
+
+    for i, CF_model in enumerate(list):
+        if CF_model != 'RL':
+            opt.control_strategy = 'SUMO'
+            opt.CF_model = CF_model
+        else:
+            opt.control_strategy = 'RL'
+            opt.CF_model = 'IDM'
+
+        training_curve = train(opt)
+        # 保存训练曲线数据: .csv文件，
+        np.savetxt('training_{}_CAVPR_{}_gamma_{}_expert_{}_eposide_{}_1.csv'
+                  .format(opt.control_strategy,
+                          opt.CAV_PR,
+                          opt.gamma,
+                          opt.CF_model,
+                          opt.Max_episode),
+                          np.array(training_curve),delimiter=',')

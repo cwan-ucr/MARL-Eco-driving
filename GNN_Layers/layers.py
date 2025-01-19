@@ -6,7 +6,7 @@ import torch.nn.functional as F
 # 原始图注意力层
 class GAT(nn.Module):
     """
-    Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
+    Simple MARL layer, similar to https://arxiv.org/abs/1710.10903
     """
     def __init__(self, in_features, out_features, dropout, alpha, concat=True):
         super(GAT, self).__init__()

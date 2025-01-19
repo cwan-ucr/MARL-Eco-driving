@@ -64,7 +64,7 @@ class SAC_agent:
         # 定义温度系数(alpha)
         if self.adaptive_alpha:
             # 目标熵，一般为动作维度的负数
-            self.target_entropy = torch.tensor(-self.action_dim * 10,
+            self.target_entropy = torch.tensor(-self.action_dim * 15,
                                                dtype=float,
                                                requires_grad=True,
                                                device=self.device)

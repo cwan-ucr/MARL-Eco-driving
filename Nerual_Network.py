@@ -77,7 +77,6 @@ class Policy_Network(nn.Module):
             print("x_std contains NaN values")
             x_std = torch.nan_to_num(x_mu, nan=1.0) + 1e-6  # 确保标准差为正
 
-
         dist = Normal(x_mu, x_std)
         normal_sample = dist.rsample()
         action = torch.tanh(normal_sample)
