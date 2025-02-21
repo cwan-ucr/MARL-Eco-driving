@@ -12,18 +12,16 @@ class Policy_Network(nn.Module):
                  action_dim,
                  action_bound,
                  dropout,
-                 beta,
-                 training):
+                 beta):
         # 定义GAT神经网络结构
         super(Policy_Network, self).__init__()
         self.dropout = dropout
         self.beta = beta
         self.hidden_dim = hidden_dim
-        self.training = training
 
         self.L1 = nn.Linear(feature_dim, hidden_dim)
         self.LN1_MLP = nn.LayerNorm(hidden_dim, bias=False)
-        self.L2 = nn.Linear(hidden_dim , hidden_dim)
+        self.L2 = nn.Linear(hidden_dim, hidden_dim)
 
         self.LN2 = nn.LayerNorm(hidden_dim, bias=False)
 
@@ -80,9 +78,9 @@ class Policy_Network(nn.Module):
             x_std = torch.nan_to_num(x_mu, nan=1.0) + 1e-6  # 确保标准差为正
 
         dist = Normal(x_mu, x_std)
-        u = dist.rsample() if self.training else x_mu
-        action = torch.tanh(u)
-        log_prob = dist.log_prob(u)
+        normal_sample = dist.rsample()
+        action = torch.tanh(normal_sample)
+        log_prob = dist.log_prob(normal_sample)
 
         # 掩码机制，将无效的log_prob置为0
         mask = mask.unsqueeze(-1)

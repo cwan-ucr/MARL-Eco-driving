@@ -60,7 +60,7 @@ def generate_cfg_file(time_step):
     </output>  
 </configuration>""".format(net_file, rou_file, time_step), file=route)
 
-def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, CF_model, seed):
+def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, warmup_time, CF_model, control_strategy, seed):
     random.seed(seed)
     np.random.seed(seed)
 
@@ -93,7 +93,7 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, CF_model, seed):
             car_gen_steps[i].append(((max_new - min_new)
                                      / (max_old[i] - min_old[i])) * (timings[i][j] - min_old[i]))
 
-        car_gen_steps[i] = np.rint(car_gen_steps[i])  # 对时间进行取整
+        car_gen_steps[i] = warmup_time + np.rint(car_gen_steps[i])  # 对时间进行取整
 
     curr_path = os.path.dirname(os.path.abspath(__file__))
     rou_file_name = 'test.rou.xml'
@@ -104,8 +104,8 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, CF_model, seed):
 
         print("""<routes>
 
-        <vType id = 'CAV' vclass="evehicle" tau="1.0" accel="4.0" decel="4.0" color="#00FF00" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
-        <vType id = 'HDV' vclass="evehicle" tau="1.5" accel="4.0" decel="4.0" color="#FF0000" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
+        <vType id = 'CAV' vclass="evehicle" tau="1.6" accel="4.0" decel="4.0" color="#00FF00" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
+        <vType id = 'HDV' vclass="evehicle" tau="1.6" accel="4.0" decel="4.0" color="#FF0000" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
 
         <route id="N2S" edges="NS -SN"/>
         <route id="S2N" edges="SN -NS"/>

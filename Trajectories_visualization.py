@@ -12,6 +12,7 @@ def trajectories_plot(ep_i,
                       CAV_PR,
                       CF_model,
                       control_strategy,
+                      RL_agent,
                       lane_name,
                       lane_length,
                       light):
@@ -97,7 +98,7 @@ def trajectories_plot(ep_i,
             elif time_in_cycle < light.green_duration + light.yellow_duration:
                 phase = 'Yellow'
             else:
-                phase =  'Red'
+                phase = 'Red'
 
             if phase == 'Green':
                 ax.axvspan(time, time + light.green_duration, ymin= 0.99, ymax=1.0, color='green', alpha=0.8,
@@ -111,15 +112,16 @@ def trajectories_plot(ep_i,
 
         # 设置标题和标签
 
-        ax.set_title(f'Eposide {ep_i} - Lane {lane_id} - CAV_PR {CAV_PR} Vehicle Position vs Time')
+        ax.set_title(f'{control_strategy} - Eposide {ep_i} - Lane {lane_id} - CAV_PR {CAV_PR} Vehicle Position vs Time')
         ax.set_xlabel('Time (s)')
         ax.set_ylabel('Position (x)')
         ax.grid(False)
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(200, 200 + lane_length_i)
 
-    file = '{}_{}'.format(control_strategy, CF_model)
-    output_dir = r'F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Output_trajectories\{}'.format(file)
+
+    output_dir = r'F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Output_trajectories\{}_{}_{}'.format(control_strategy, RL_agent, CF_model)
+
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     # 保存图片

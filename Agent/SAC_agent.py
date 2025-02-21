@@ -3,19 +3,18 @@ import torch
 import torch.optim as optm
 import torch.nn.functional as F
 import copy
+import os
 
 from Nerual_Network import Policy_Network, Critic_Network
 from Replay_buffer import replay_buffer
 
 
 # SAC Agent
-class SAC_agent:
+class SAC_agent():
 
     def __init__(self, **kwargs):
         # 参数继承
         self.__dict__.update(kwargs)
-
-        del self.CAV_PR
 
         # 定义策略网络(actor)
         self.actor = Policy_Network \
@@ -24,7 +23,8 @@ class SAC_agent:
              self.action_dim,
              self.action_bound,
              self.dropout,
-             self.beta).to(self.device)
+             self.beta,
+             self.training).to(self.device)
 
         # 定义Q网络(critic)
         self.critic = Critic_Network \
@@ -64,7 +64,7 @@ class SAC_agent:
         # 定义温度系数(alpha)
         if self.adaptive_alpha:
             # 目标熵，一般为动作维度的负数
-            self.target_entropy = torch.tensor(-self.action_dim * 15,
+            self.target_entropy = torch.tensor(-self.action_dim * 20 * self.CAV_PR,
                                                dtype=float,
                                                requires_grad=True,
                                                device=self.device)
@@ -92,9 +92,23 @@ class SAC_agent:
         entropy = -next_log_prob
         q1_value, q2_value = self.target_critic(next_state, next_actions, next_mask)
 
-        target_q = rewards.sum(dim=-1).unsqueeze(-1) + self.gamma * (~dones) *  \
-                   (torch.min(q1_value, q2_value) +
-                    self.log_alpha.exp() * entropy)
+        if self.RL_agent == 'ISAC':
+            # Independent Soft Actor-Critic
+            target_q = rewards + self.gamma * (~dones) * \
+                    (torch.min(q1_value, q2_value) + self.log_alpha.exp() * entropy)
+            target_q = target_q * next_mask
+        elif self.RL_agent == 'VDN':
+            # Value-Decomposition Network
+            reward = rewards.sum(dim=-1)
+            q_next = self.gamma * (~dones) * \
+                    (torch.min(q1_value, q2_value) + self.log_alpha.exp() * entropy)
+            target_q = reward + q_next.sum(dim=-1)
+        elif self.RL_agent == 'M_VDN':
+            # Mean Value-Decomposition Network
+            reward = rewards.sum(dim=-1) / next_mask.sum(dim=-1)
+            q_next = self.gamma * (~dones) * \
+                    (torch.min(q1_value, q2_value) + self.log_alpha.exp() * entropy)
+            target_q = reward + q_next.sum(dim=-1) / next_mask.sum(dim=-1)
 
         return target_q
 
@@ -118,13 +132,25 @@ class SAC_agent:
         # TD error估计, Q网络更新(critic)
         # ----------------------------- ↓↓↓↓↓ Update QValue Net ↓↓↓↓↓ ------------------------------#
         Q_target = self.calc_target(rewards, next_states, mask_next, dones)
-        Q_target = Q_target * mask
 
         Q1_current, Q2_current = self.critic(states, actions, mask)
 
-        # Multi-agent cooperation: sum Q first, then mean
-        td_error = (F.mse_loss(Q_target.sum(dim=-1), Q1_current.sum(dim=-1))
-                    + F.mse_loss(Q_target.sum(dim=-1), Q2_current.sum(dim=-1)))
+        if self.RL_agent == 'ISAC':
+            # Independent Soft Actor-Critic
+            car_count = mask.sum()
+            Q1_current = Q1_current * mask
+            Q2_current = Q2_current * mask
+            td_error = (1 / car_count) * ((Q_target - Q1_current) ** 2).sum() \
+                        + (1 / car_count) * ((Q2_current - Q1_current) ** 2).sum()
+        elif self.RL_agent == 'VDN':
+            # Value-Decomposition Network
+            td_error = (F.mse_loss(Q_target, Q1_current.sum(dim=-1))
+                        + F.mse_loss(Q_target, Q2_current.sum(dim=-1)))
+        elif self.RL_agent == 'M_VDN':
+            # Mean Value-Decomposition Network
+            td_error = (F.mse_loss(Q_target, Q1_current.sum(dim=-1) / mask.sum(dim=-1))
+                        + F.mse_loss(Q_target, Q2_current.sum(dim=-1) / mask.sum(dim=-1)))
+
 
         # 计算Q网络损失，反向传播，使用梯度剪切避免梯度爆炸
         self.critic_loss.append(td_error.item())
@@ -145,7 +171,13 @@ class SAC_agent:
             Q1_value, Q2_value = self.critic(states, new_actions, mask)
             min_q = torch.min(Q1_value, Q2_value)
 
-            actor_loss = (self.log_alpha.exp() * new_log_prob.sum(dim=-1) - min_q.sum(dim=-1)).mean()
+            if self.RL_agent == 'ISAC':
+                actor_loss = (1 / car_count) * (self.log_alpha.exp() * new_log_prob - min_q).sum()
+            elif self.RL_agent == 'VDN':
+                actor_loss = (self.log_alpha.exp() * new_log_prob.sum(dim=-1) - min_q.sum(dim=-1)).mean()
+            elif self.RL_agent == 'M_VDN':
+                actor_loss = ((self.log_alpha.exp() * new_log_prob.sum(dim=-1) - min_q.sum(dim=-1)) / mask.sum(dim=-1)).mean()
+
             self.actor_loss.append(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
@@ -173,25 +205,40 @@ class SAC_agent:
             self.soft_update(self.critic, self.target_critic)
 
     # 模型存储
-    def save(self, timestep, CAV_PR, time_step, NN_reset, Hidden_dim):
+    def save(self, ep_i, CAV_PR, time_step, control_strategy, RL_agent):
         EnvName = self.Env_name
+        curr_path = os.path.dirname(__file__)
+        parent_path = os.path.dirname(curr_path)
 
-        torch.save(self.actor.state_dict(), "./model./{}_actor_{}_time_step_{}_hidden_dim_{}_NN_Reset_{}_CAV_PR_{}_rand.pth"
-                                   .format(EnvName, timestep, time_step, Hidden_dim, NN_reset, CAV_PR))
-        torch.save(self.critic.state_dict(), "./model./{}_critic_{}_time_step_{}_hidden_dim_{}_NN_Reset_{}_CAV_PR_{}_rand.pth"
-                                   .format( EnvName, timestep, time_step, Hidden_dim, NN_reset, CAV_PR))
+        output_dir = parent_path + "/model./{}_{}./".format(control_strategy, RL_agent)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        output_path_actor = output_dir + "actor_{}_timestep_{}_CAVPR_{}_{}_{}.pth".format(time_step, ep_i, CAV_PR, control_strategy, RL_agent)
+        output_path_critic = output_dir + "critic_{}_timestep_{}_CAVPR_{}_{}_{}.pth".format(time_step, ep_i, CAV_PR, control_strategy, RL_agent)
+
+        torch.save(self.actor.state_dict(), output_path_actor)
+        torch.save(self.critic.state_dict(), output_path_critic)
 
     # 模型加载
-    def load(self, epoch, time_step, CAV_PR, NN_reset):
+    def load(self, epoch, CAV_PR, time_step, control_strategy, RL_agent):
         EnvName = self.Env_name
 
+        curr_path = os.path.dirname(__file__)
+        parent_path = os.path.dirname(curr_path)
+
+        input_dir = parent_path + "/model./{}_{}./".format(control_strategy, RL_agent)
+
+        if not os.path.exists(input_dir):
+            os.makedirs(input_dir)
+
+        input_path_actor = input_dir + "actor_{}_timestep_{}_CAVPR_{}_{}_{}.pth".format(time_step, epoch, CAV_PR, control_strategy, RL_agent)
+        input_path_critic = input_dir + "critic_{}_timestep_{}_CAVPR_{}_{}_{}.pth".format(time_step, epoch, CAV_PR, control_strategy, RL_agent)
+
         state_dict_before = self.actor.state_dict()
-        actor_state_dict = torch.load("./model./{}_actor_{}_time_step_{}_NN_Reset_{}_CAV_PR_{}_rand.pth"
-                                .format(EnvName, epoch, time_step, NN_reset, CAV_PR),
-                                    weights_only=False)
-        critic_state_dict = torch.load("./model./{}_critic_{}_time_step_{}_NN_Reset_{}_CAV_PR_{}_rand.pth"
-                                .format(EnvName, epoch, time_step, NN_reset, CAV_PR),
-                                    weights_only=False)
+        actor_state_dict = torch.load(input_path_actor, weights_only=False)
+        critic_state_dict = torch.load(input_path_critic, weights_only=False)
+
         self.actor.load_state_dict(actor_state_dict)
         self.critic.load_state_dict(critic_state_dict)
         # 检查差异
@@ -202,6 +249,10 @@ class SAC_agent:
             else:
                 print('加载模型参数成功')
             break
+
+    def eval(self):
+        self.actor.eval()
+        self.critic.eval()
 
     # 网络重制，避免网络参数被前期数据污染
     def reset(self):

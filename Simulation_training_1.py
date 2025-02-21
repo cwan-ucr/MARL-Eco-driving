@@ -15,35 +15,36 @@ from Trajectories_visualization import trajectories_plot
 # 环境设置
 parser = argparse.ArgumentParser()
 parser.add_argument('--device', type=str, default='cuda', help='running device: cuda or cpu')
-parser.add_argument('--seed', type=int, default=2024, help='random seed')
-parser.add_argument('--training', type=bool, default=True, help='training or testing')
+parser.add_argument('--seed', type=int, default=2668, help='random seed')
+parser.add_argument('--training', type=bool, default=False, help='training or testing')
 parser.add_argument('--Env_name', type=str, default='SUMO_RL', help='name of simulation environment')
 parser.add_argument('--control_strategy', type=str, default='SUMO', help='Longitudinal control strategy for CAV, include SUMO, and RL')
 parser.add_argument('--CF_model', type=str, default='IDM', help='choose the CF model, include Random, IDM, and GLOSA')
 parser.add_argument('--Need_transition_state', type=bool, default=True, help='whether need to transition state, True or False')
 
 # SUMO交通流参数设置
-parser.add_argument('--volume_per_leg', type=tuple, default=[1800, 0, 0, 0], help='Traffic volume per lane, in 3600 steps, 600: W2E, 0: E2W, 0: N2S, and 0: S2N')
+parser.add_argument('--volume_per_leg', type=tuple, default=[2000, 0, 0, 0], help='Traffic volume per lane, in 3600 steps, 600: W2E, 0: E2W, 0: N2S, and 0: S2N')
 parser.add_argument('--time_step', type=float, default=1.0, help='update interval for environment, steps per second')
-parser.add_argument('--CAV_PR', type=float, default=1.0, help='CAV penetration rate')
-parser.add_argument('--warmup_time', type=int, default=100, help='Warmup steps before applying simulation, in second')
+parser.add_argument('--CAV_PR', type=float, default=0.6, help='CAV penetration rate')
+parser.add_argument('--warmup_time', type=int, default=40, help='Warmup steps before applying simulation, in second')
 parser.add_argument('--perception_region', type=float, default=25.0, help='Perception of CAVs on-board sensor, information of HDVs can be shared if in the region, in miles')
 parser.add_argument('--dangerous_time', type=float, default=0.0, help='Dangerous time when green start and yellow end, in seconds')
 parser.add_argument('--simulation_time', type=int, default=340, help='Simulation steps per episode, in steps')
 parser.add_argument('--refresh_progress_interval', type=int, default=40, help='Refresh the simulation progress in every K steps, in steps')
 
 # 车辆参数设置
-parser.add_argument('--lc_min_speed', type=float, default=4.0, help='Max simulation steps per episode, in miles per second')
+parser.add_argument('--lc_min_speed', type=float, default=4.0, help='Max wsimulation steps per episode, in miles per second')
 parser.add_argument('--TTC_min', type=float, default=0.8, help='Safety car-following time headway, in seconds')
-parser.add_argument('--TTC_max', type=float, default=1.6, help='Safety car-following time headway, in seconds')
+parser.add_argument('--TTC_max', type=float, default=3.0, help='Safety car-following time headway, in seconds')
 
 # RL训练设置
+parser.add_argument('--RL_agent', type=str, default='M_VDN', help='Policy of MARL, include ISAC, VDN, and M_VDN')
 parser.add_argument('--NN_reset', type=int, default=4000, help='Model reset at K-th episode, in iterations')
-parser.add_argument('--Max_episode', type=int, default=1000, help='Max training episode')
+parser.add_argument('--Max_episode', type=int, default=1, help='Max training episode')
 parser.add_argument('--save_episode', type=int, default=100, help='Model saving interval, in iterations.')
 parser.add_argument('--expert_episode', type=int, default=0, help='Max pretraining episode')
 parser.add_argument('--Max_ep_steps', type=int, default=600, help='Max training steps per episode, in steps')
-parser.add_argument('--eval_interval', type=int, default=50, help='Model evaluating interval, trajectories plot, in episodes.')
+parser.add_argument('--eval_interval', type=int, default=100, help='Model evaluating interval, trajectories plot, in episodes.')
 parser.add_argument('--Dynamic_target_entropy', type=bool, default=False, help='Whether need to dynamic target entropy TE = -dim(A_eff), True or False')
 parser.add_argument('--feature_dim', type=int, default=7, help='Feature dim of each node')
 parser.add_argument('--action_dim', type=int, default=2, help='Action dim of each node, longitudinal and lateral')
@@ -57,7 +58,7 @@ parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate')
 # SAC_agent设置
 parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
 parser.add_argument('--grad_clip', type=float, default=5.0, help='Gradient clipping value')
-parser.add_argument('--policy_delay', type=int, default=2, help='Policy decay: update N times of critic then update actor, in steps')
+parser.add_argument('--policy_delay', type=int, default=1, help='Policy decay: update N times of critic then update actor, in steps')
 parser.add_argument('--actor_lr', type=float, default=3e-4, help='Learning rate of actor')
 parser.add_argument('--critic_lr', type=float, default=3e-4, help='Learning rate of critic')
 parser.add_argument('--alpha', type=float, default=0.12, help='Entropy coefficient')
@@ -65,7 +66,7 @@ parser.add_argument('--alpha_lr', type=float, default=3e-4, help='Entropy coeffi
 parser.add_argument('--tau', type=float, default=5e-3, help='Soft update value of Target Critic')
 parser.add_argument('--adaptive_alpha', type=bool, default=True, help='Use adaptive_alpha or Not')
 parser.add_argument('--buffer_size', type=int, default=100000, help='Capacity of replay buffer')
-parser.add_argument('--batch_size', type=int, default=256, help='batch_size of training')
+parser.add_argument('--batch_size', type=int, default=64, help='batch_size of training')
 
 
 opt = parser.parse_args()
@@ -155,7 +156,7 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
                                         np.array(dones[i], dtype=bool))
             if veh_names_next[i].__len__() == 0:
                 states[i] = []
-            ep_reward += rewards[i].sum()
+            ep_reward += rewards[i].sum() / mask[i].sum() if sum(mask[i]) > 0 else 0
 
         # 状态更新
         states = states_next.copy()
@@ -190,6 +191,7 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
                           opt.CAV_PR,
                           opt.CF_model,
                           opt.control_strategy,
+                          opt.RL_agent,
                           env.entering_lanes,
                           env.lanes_entering_length,
                           env.light)
@@ -204,8 +206,8 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
         agent.save(int(ep_i),
                    opt.CAV_PR,
                    opt.time_step,
-                   opt.NN_reset,
-                   opt.hidden_dim)
+                   opt.control_strategy,
+                   opt.RL_agent)
 
     total_steps += ep_i_step
 
@@ -214,14 +216,15 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
         actor_loss = agent.actor_loss[-1]
         alpha_loss = agent.alpha_loss[-1]
 
-    ep_fuel = env.fuel_consumption / env.CAV_number
-    ep_stop = env.stop_time / env.CAV_number
-    ep_tet = env.tet / env.CAV_number
-    ep_tit = env.tit / env.CAV_number
-    ep_tt = env.total_travel_time / env.CAV_number
+    ep_fuel = env.fuel_consumption / env.discharge_number
+    ep_stop = env.stop_time / env.discharge_number
+    ep_tet = env.tet / env.discharge_number
+    ep_tit = env.tit / env.discharge_number
+    ep_tt = env.total_travel_time / env.discharge_number
+    ep_dt = env.desired_pass_error / env.discharge_number
     ep_q = env.discharge_number
 
-    ep_matrix = np.array([ep_fuel, ep_stop, ep_tet, ep_tit, ep_tt, ep_q])
+    ep_matrix = np.array([ep_fuel, ep_stop, ep_tet, ep_tit, ep_dt, ep_tt, ep_q])
 
     return ep_reward, ep_matrix, actor_loss, critic_loss, alpha_loss, total_steps
 
@@ -261,11 +264,13 @@ def train(opt):
 
     # 构建SAC智能体
     agent = SAC_agent(**vars(opt))
-    if not opt.training:
-        agent.load(opt.Max_episode,
-                   opt.time_step,
-                   opt.CAV_PR,
-                   opt.NN_reset)
+    if not opt.training and opt.control_strategy == 'RL':
+        agent.load("500",
+                    opt.CAV_PR,
+                    opt.time_step,
+                    opt.control_strategy,
+                    opt.RL_agent)
+        agent.eval()
 
     # SAC训练/验证
     total_steps = 0
@@ -278,7 +283,7 @@ def train(opt):
         if ep_i > opt.expert_episode and opt.control_strategy == 'RL':
             opt.CF_model = 'IDM'
 
-        generate_rou_file(opt.Max_ep_steps, opt.volume_per_leg, opt.CAV_PR, opt.CF_model, env_seed)
+        generate_rou_file(opt.Max_ep_steps, opt.volume_per_leg, opt.CAV_PR, opt.warmup_time, opt.CF_model, opt.control_strategy, env_seed)
 
         (ep_reward,
          ep_matrix,
@@ -287,7 +292,7 @@ def train(opt):
          alpha_loss,
          total_steps) = run_simulations(env, agent, total_steps, ep_i, opt)
 
-        if agent.alpha_loss.__len__() > 0 or ep_reward.item() != 0:
+        if ep_reward.item() != 0:
             print('\n')
             print('Episode: ', ep_i - opt.expert_episode,
                   ' Reward:', round(ep_reward.item(), 2),
@@ -298,8 +303,9 @@ def train(opt):
                   ' Stop (s/v):', round(ep_matrix[1], 2),
                   ' TET (s/v):', round(ep_matrix[2], 2),
                   ' TIT (s/v):', round(ep_matrix[3], 2),
-                  ' Pass (v):', round(ep_matrix[5], 2),
-                  ' ATT (s/v):', round(ep_matrix[4], 2))
+                  ' Dt (s/v):', round(ep_matrix[4], 2),
+                  ' Pass (v):', round(ep_matrix[6], 2),
+                  ' ATT (s/v):', round(ep_matrix[5], 2))
             print('--------------------------------------------------------------------------------------------------------------------------------------')
 
         training_curve.append((ep_reward,
@@ -308,36 +314,46 @@ def train(opt):
                                ep_matrix[2],
                                ep_matrix[3],
                                ep_matrix[4],
+                               ep_matrix[5],
+                               ep_matrix[6],
                                actor_loss,
                                critic_loss,
                                alpha_loss,))
 
+    # if opt.training:
+    #     agent.save('final',
+    #                         opt.CAV_PR,
+    #                         opt.time_step,
+    #                         opt.control_strategy,
+    #                         opt.RL_agent)
 
-    agent.save('final', opt.CAV_PR,
-                                opt.time_step,
-                                opt.NN_reset,
-                                opt.hidden_dim)
     return training_curve
 
 
 if __name__ == "__main__":
+    Volume_List = [2000]
+    CAV_PR_list = [0.2, 0.6, 1.0]
+    for CAV_PR in CAV_PR_list:
 
-    list = ['RL']
+        opt.CAV_PR = CAV_PR
+        list = ['IDM', 'GLOSA', 'M_VDN']
 
-    for i, CF_model in enumerate(list):
-        if CF_model != 'RL':
-            opt.control_strategy = 'SUMO'
-            opt.CF_model = CF_model
-        else:
-            opt.control_strategy = 'RL'
-            opt.CF_model = 'IDM'
+        for i, CF_model in enumerate(list):
+            if CF_model == 'IDM' or CF_model == 'GLOSA':
+                opt.control_strategy = 'SUMO'
+                opt.CF_model = CF_model
+            else:
+                opt.control_strategy = 'RL'
+                opt.CF_model = 'IDM'
+                opt.RL_agent = CF_model
 
-        training_curve = train(opt)
-        # 保存训练曲线数据: .csv文件，
-        np.savetxt('training_{}_CAVPR_{}_gamma_{}_expert_{}_eposide_{}_1.csv'
-                  .format(opt.control_strategy,
-                          opt.CAV_PR,
-                          opt.gamma,
-                          opt.CF_model,
-                          opt.Max_episode),
-                          np.array(training_curve),delimiter=',')
+            training_curve = train(opt)
+            # 保存训练曲线数据: .csv文件，
+            np.savetxt('testing_{}_CAVPR_{}_Volume_{}_gamma_{}_agent_{}_eposide_{}.csv'
+                      .format(CF_model,
+                              opt.CAV_PR,
+                              opt.volume_per_leg[0],
+                              opt.gamma,
+                              opt.RL_agent,
+                              opt.Max_episode),
+                              np.array(training_curve), delimiter=',')

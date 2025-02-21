@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-01-15 10:59:45 by Eclipse SUMO netedit Version 1.21.0
+<!-- generated on 2025-02-19 20:16:17 by Eclipse SUMO netedit Version 1.21.0
 <neteditConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/neteditConfiguration.xsd">
 
     <input>
-        <sumo-net-file value="F:\MasterDegreeCourse\Master Degree Thesis\Codes\Part_2\Road_Network\test.net.xml"/>
+        <sumo-net-file value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network\test.net.xml"/>
     </input>
 
     <output>
-        <output-file value="F:\MasterDegreeCourse\Master Degree Thesis\Codes\Part_2\Road_Network\test.net.xml"/>
+        <output-file value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network\test.net.xml"/>
     </output>
 
     <processing>
