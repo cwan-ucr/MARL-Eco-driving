@@ -37,6 +37,7 @@ def trajectories_plot(ep_i,
             vehicle_id = vehicle.get('id')
             lane_id = vehicle.get('lane')  # 获取车道ID
             type = vehicle.get('type')  # 获取车辆类型
+            y = float(vehicle.get('y')) # 获取y坐标
             x = float(vehicle.get('x'))  # 获取车辆的 x 坐标
 
             # 检查是否发生换道（即车辆车道发生变化）
@@ -94,7 +95,7 @@ def trajectories_plot(ep_i,
         for time in signal_times:
             time_in_cycle = time % light.cycle_length
             if time_in_cycle < light.green_duration:
-                phase =  'Green'
+                phase = 'Green'
             elif time_in_cycle < light.green_duration + light.yellow_duration:
                 phase = 'Yellow'
             else:
@@ -126,8 +127,8 @@ def trajectories_plot(ep_i,
         os.makedirs(output_dir)
     # 保存图片
     plt.savefig(os.path.join(output_dir, f'trajectory_output_{ep_i}_{CAV_PR}.png'))
-    # 调整布局，避免重叠
-    plt.tight_layout()
-    plt.show()
+    # # 调整布局，避免重叠
+    # plt.tight_layout()
+    # plt.show()
 
     plt.close()

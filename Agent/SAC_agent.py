@@ -7,6 +7,7 @@ import os
 
 from Nerual_Network import Policy_Network, Critic_Network
 from Replay_buffer import replay_buffer
+from Replay_buffer_ISAC import replay_buffer_ISAC
 
 
 # SAC Agent
@@ -18,7 +19,7 @@ class SAC_agent():
 
         # 定义策略网络(actor)
         self.actor = Policy_Network \
-            (self.feature_dim,
+            (self.state_dim,
              self.hidden_dim,
              self.action_dim,
              self.action_bound,
@@ -28,7 +29,7 @@ class SAC_agent():
 
         # 定义Q网络(critic)
         self.critic = Critic_Network \
-            (self.feature_dim,
+            (self.state_dim,
              self.hidden_dim,
              self.action_dim,
              self.dropout,
@@ -49,12 +50,20 @@ class SAC_agent():
             params.requires_grad = False
 
         # 定义经验回放池
-        self.replay_buffer = replay_buffer(self.buffer_size,
-                                           self.batch_size,
-                                           self.state_dim,
-                                           self.action_dim,
-                                           self.max_nodes,
-                                           self.device)
+        if self.RL_agent != 'ISAC':
+            self.replay_buffer = replay_buffer(self.buffer_size,
+                                               self.batch_size,
+                                               self.state_dim,
+                                               self.action_dim,
+                                               self.max_nodes,
+                                               self.device)
+        else:
+            self.replay_buffer = replay_buffer_ISAC(self.buffer_size,
+                                                    self.batch_size,
+                                                    self.state_dim,
+                                                    self.action_dim,
+                                                    self.max_nodes,
+                                                    self.device)
 
         # 定义loss收集器
         self.actor_loss = []
@@ -64,10 +73,17 @@ class SAC_agent():
         # 定义温度系数(alpha)
         if self.adaptive_alpha:
             # 目标熵，一般为动作维度的负数
-            self.target_entropy = torch.tensor(-self.action_dim * 20 * self.CAV_PR,
-                                               dtype=float,
-                                               requires_grad=True,
-                                               device=self.device)
+            if self.RL_agent != 'ISAC':
+                self.target_entropy = torch.tensor(-self.action_dim * 20 * self.CAV_PR,
+                                                   dtype=float,
+                                                   requires_grad=True,
+                                                   device=self.device)
+            else:
+                self.target_entropy = torch.tensor(-self.action_dim,
+                                                   dtype=float,
+                                                   requires_grad=True,
+                                                   device=self.device)
+
             self.log_alpha = torch.tensor(np.log(self.alpha),
                                           dtype=torch.float,
                                           requires_grad=True,
@@ -193,8 +209,10 @@ class SAC_agent():
                 self.target_entropy = -mask_next.sum(dim=-1)
 
             if self.adaptive_alpha:
+
                 alpha_loss = -(self.log_alpha *
                                (new_log_prob.sum(dim=-1) + self.target_entropy).detach()).mean()
+
                 self.alpha_loss.append(alpha_loss.item())
 
                 self.alpha_optimizer.zero_grad()
@@ -253,40 +271,3 @@ class SAC_agent():
     def eval(self):
         self.actor.eval()
         self.critic.eval()
-
-    # 网络重制，避免网络参数被前期数据污染
-    def reset(self):
-        self.actor = Policy_Network \
-                    (self.feature_dim,
-                     self.hidden_dim,
-                     self.action_dim,
-                     self.action_bound,
-                     self.dropout,
-                     self.beta).to(self.device)
-        self.critic = Critic_Network \
-                    (self.feature_dim,
-                     self.hidden_dim,
-                     self.action_dim,
-                     self.dropout,
-                     self.beta).to(self.device)
-
-        self.target_critic = copy.deepcopy(self.critic)
-        for params in self.target_critic.parameters():
-            params.requires_grad = False
-
-        self.actor_optimizer = optm.Adam \
-            (self.actor.parameters(), lr=self.actor_lr, weight_decay=self.weight_decay)
-        self.critic_optimizer = optm.Adam \
-            (self.critic.parameters(), lr=self.critic_lr, weight_decay=self.weight_decay)
-
-        if self.adaptive_alpha:
-            self.target_entropy = torch.tensor(-self.action_dim * self.max_nodes,
-                                               dtype=float,
-                                               requires_grad=True,
-                                               device=self.device)
-            self.log_alpha = torch.tensor(np.log(self.alpha),
-                                          dtype=torch.float,
-                                          requires_grad=True,
-                                          device=self.device)
-            self.alpha_optimizer = optm.Adam \
-                ([self.log_alpha], lr=self.alpha_lr)

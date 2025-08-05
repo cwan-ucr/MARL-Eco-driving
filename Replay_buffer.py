@@ -18,6 +18,7 @@ class replay_buffer:
         self.done = np.zeros((buffer_size, max_nodes), dtype=np.bool)
         self.state_next = np.zeros((buffer_size, max_nodes, state_dim), dtype=np.float32)
         self.mask_next = np.zeros((buffer_size, max_nodes), dtype=np.int32)
+        self.goal_state = np.zeros((buffer_size, max_nodes * state_dim), dtype=np.float32)
 
 
     def add(self, state, mask, action, reward, state_next, mask_next, done):
@@ -42,7 +43,8 @@ class replay_buffer:
                 torch.from_numpy(self.reward[ind]).to(dtype=torch.float32, device=self.device),
                 torch.from_numpy(self.done[ind]).to(dtype=torch.bool, device=self.device),
                 torch.from_numpy(self.state_next[ind]).to(dtype=torch.float32, device=self.device),
-                torch.from_numpy(self.mask_next[ind]).to(dtype=torch.int32, device=self.device))
+                torch.from_numpy(self.mask_next[ind]).to(dtype=torch.int32, device=self.device),
+                torch.from_numpy(self.action[ind]).to(dtype=torch.float32, device=self.device))
 
     def len(self):
         return self.size

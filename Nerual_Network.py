@@ -190,7 +190,7 @@ class QValue_Network(nn.Module):
         x_output = self.L4(x3)
         x_output = x_output + self.ResNet(cat)
 
-        if x2.shape[1] == 1:
+        if x.shape[1] == self.feature_dim:
             q_nodes = x_output.t() * mask
         else:
             q_nodes = x_output * mask.unsqueeze(-1)

@@ -86,8 +86,8 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, warmup_time, CF_
         if car_count_per_leg[i] < 1:
             continue
 
-        min_old[i] = math.floor(timings[i][0])
-        max_old[i] = math.ceil(timings[i][-1])
+        min_old[i] = timings[i][0]
+        max_old[i] = timings[i][-1]
 
         for j in range(car_count_per_leg[0]):
             car_gen_steps[i].append(((max_new - min_new)
@@ -104,8 +104,8 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, warmup_time, CF_
 
         print("""<routes>
 
-        <vType id = 'CAV' vclass="evehicle" tau="1.6" accel="4.0" decel="4.0" color="#00FF00" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
-        <vType id = 'HDV' vclass="evehicle" tau="1.6" accel="4.0" decel="4.0" color="#FF0000" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
+        <vType id = 'CAV' vClass="private" tau="1.6" accel="4.0" decel="4.0" color="#00FF00" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
+        <vType id = 'HDV' vClass="private" tau="1.6" accel="4.0" decel="4.0" color="#FF0000" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
 
         <route id="N2S" edges="NS -SN"/>
         <route id="S2N" edges="SN -NS"/>
@@ -144,8 +144,11 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, warmup_time, CF_
                 print('        <vehicle id="%s_%i" type="%s" route="%s" depart="%i" departSpeed="10" departLane="best">'
                       % (depart_list[i][0], i + 1, veh_type, depart_list[i][0], depart_list[i][1]), file=route)
                 print('            <param key="has.glosa.device" value="true"/>', file=route)
-                print('            <param key="device.glosa.range" value="200"/>', file=route)
+                print('            <param key="device.glosa.range" value="170"/>', file=route)
                 print('        </vehicle>', file=route)
 
 
         print('</routes>', file=route)
+
+    random.seed(seed)
+    np.random.seed(seed)

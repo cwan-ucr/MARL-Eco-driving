@@ -9,14 +9,15 @@ import traci
 
 from Env import SUMOEnv
 from Agent.SAC_agent import SAC_agent
+from Agent.TD3_agent import TD3_agent
 from Road_Network.sumocfg import set_sumo, generate_cfg_file, generate_rou_file
 from Trajectories_visualization import trajectories_plot
 
 # 环境设置
 parser = argparse.ArgumentParser()
 parser.add_argument('--device', type=str, default='cuda', help='running device: cuda or cpu')
-parser.add_argument('--seed', type=int, default=2668, help='random seed')
-parser.add_argument('--training', type=bool, default=False, help='training or testing')
+parser.add_argument('--seed', type=int, default=2024, help='random seed')
+parser.add_argument('--training', type=bool, default=True, help='training or testing')
 parser.add_argument('--Env_name', type=str, default='SUMO_RL', help='name of simulation environment')
 parser.add_argument('--control_strategy', type=str, default='SUMO', help='Longitudinal control strategy for CAV, include SUMO, and RL')
 parser.add_argument('--CF_model', type=str, default='IDM', help='choose the CF model, include Random, IDM, and GLOSA')
@@ -24,13 +25,13 @@ parser.add_argument('--Need_transition_state', type=bool, default=True, help='wh
 
 # SUMO交通流参数设置
 parser.add_argument('--volume_per_leg', type=tuple, default=[2000, 0, 0, 0], help='Traffic volume per lane, in 3600 steps, 600: W2E, 0: E2W, 0: N2S, and 0: S2N')
-parser.add_argument('--time_step', type=float, default=1.0, help='update interval for environment, steps per second')
-parser.add_argument('--CAV_PR', type=float, default=0.6, help='CAV penetration rate')
-parser.add_argument('--warmup_time', type=int, default=40, help='Warmup steps before applying simulation, in second')
+parser.add_argument('--time_step', type=float, default=0.5, help='update interval for environment, steps per second')
+parser.add_argument('--CAV_PR', type=float, default=1.0, help='CAV penetration rate')
+parser.add_argument('--warmup_time', type=int, default=30, help='Warmup steps before applying simulation, in second')
 parser.add_argument('--perception_region', type=float, default=25.0, help='Perception of CAVs on-board sensor, information of HDVs can be shared if in the region, in miles')
 parser.add_argument('--dangerous_time', type=float, default=0.0, help='Dangerous time when green start and yellow end, in seconds')
-parser.add_argument('--simulation_time', type=int, default=340, help='Simulation steps per episode, in steps')
-parser.add_argument('--refresh_progress_interval', type=int, default=40, help='Refresh the simulation progress in every K steps, in steps')
+parser.add_argument('--simulation_time', type=int, default=330, help='Simulation steps per episode, in steps')
+parser.add_argument('--refresh_progress_interval', type=int, default=30, help='Refresh the simulation progress in every K steps, in steps')
 
 # 车辆参数设置
 parser.add_argument('--lc_min_speed', type=float, default=4.0, help='Max wsimulation steps per episode, in miles per second')
@@ -40,19 +41,19 @@ parser.add_argument('--TTC_max', type=float, default=3.0, help='Safety car-follo
 # RL训练设置
 parser.add_argument('--RL_agent', type=str, default='M_VDN', help='Policy of MARL, include ISAC, VDN, and M_VDN')
 parser.add_argument('--NN_reset', type=int, default=4000, help='Model reset at K-th episode, in iterations')
-parser.add_argument('--Max_episode', type=int, default=1, help='Max training episode')
+parser.add_argument('--Max_episode', type=int, default=401, help='Max training episode')
 parser.add_argument('--save_episode', type=int, default=100, help='Model saving interval, in iterations.')
 parser.add_argument('--expert_episode', type=int, default=0, help='Max pretraining episode')
-parser.add_argument('--Max_ep_steps', type=int, default=600, help='Max training steps per episode, in steps')
+parser.add_argument('--Max_ep_steps', type=int, default=270, help='Max training steps per episode, in steps')
 parser.add_argument('--eval_interval', type=int, default=100, help='Model evaluating interval, trajectories plot, in episodes.')
 parser.add_argument('--Dynamic_target_entropy', type=bool, default=False, help='Whether need to dynamic target entropy TE = -dim(A_eff), True or False')
-parser.add_argument('--feature_dim', type=int, default=7, help='Feature dim of each node')
-parser.add_argument('--action_dim', type=int, default=2, help='Action dim of each node, longitudinal and lateral')
+parser.add_argument('--state_dim', type=int, default=10, help='Feature dim of each node')
+parser.add_argument('--action_dim', type=int, default=1, help='Action dim of each node, longitudinal and lateral')
 
 # DNN 设置
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters)')
-parser.add_argument('--beta', type=float, default=0.2, help='Beta for the leaky_relu')
-parser.add_argument('--hidden_dim', type=int, default=128, help='Hidden net width, s_dim-hidden_dim-hidden_dim-a_dim')
+parser.add_argument('--beta', type=float, default=0.01, help='Beta for the leaky_relu')
+parser.add_argument('--hidden_dim', type=int, default=256, help='Hidden net width, s_dim-hidden_dim-hidden_dim-a_dim')
 parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate')
 
 # SAC_agent设置
@@ -90,8 +91,8 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
     states, veh_names, veh_types = env.reset()
 
     # 训练
-    while traci.simulation.getTime() < opt.simulation_time \
-            and ep_i_step <= opt.Max_ep_steps:
+    while traci.simulation.getDepartedNumber() < traci.simulation.getLoadedNumber() \
+            or traci.vehicle.getIDList().__len__() > 0:
 
         actions = veh_names.copy()
         mask = veh_types.copy()
@@ -132,13 +133,8 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
         for i in range(0, len(env.direction)):
             if veh_names[i].__len__() == 0 or sum(mask[i]) == 0:
                 continue
-            try :
-                actions[i].astype(np.float32)
-            except:
-                print('error')
 
-            # Add to replay buffer: transition state or future state
-            if opt.Need_transition_state:
+            if opt.RL_agent != 'ISAC':
                 agent.replay_buffer.add(states[i],
                                         mask[i],
                                         actions[i].astype(np.float32),
@@ -147,16 +143,39 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
                                         np.array(veh_types[i], dtype=int),
                                         np.array(dones[i], dtype=bool))
             else:
-                agent.replay_buffer.add(states[i],
-                                        mask[i],
-                                        actions[i].astype(np.float32),
-                                        np.array(rewards[i], dtype=np.float32),
-                                        states_next[i],
-                                        np.array(veh_types_next[i], dtype=int),
-                                        np.array(dones[i], dtype=bool))
+                for j, veh_i in enumerate(veh_names[i]):
+                    if mask[i][j] != 1:
+                        continue
+
+                    agent.replay_buffer.add(states[i][j],
+                                            mask[i][j],
+                                            actions[i][j].astype(np.float32),
+                                            np.array(rewards[i][j], dtype=np.float32),
+                                            update_last_states[i][j],
+                                            np.array(veh_types[i][j], dtype=int),
+                                            np.array(dones[i][j], dtype=bool))
+
+
+            # Add to replay buffer: transition state or future state
+            # if opt.Need_transition_state:
+            #     agent.replay_buffer.add(states[i],
+            #                             mask[i],
+            #                             actions[i].astype(np.float32),
+            #                             np.array(rewards[i], dtype=np.float32),
+            #                             update_last_states[i],
+            #                             np.array(veh_types[i], dtype=int),
+            #                             np.array(dones[i], dtype=bool))
+            # else:
+            #     agent.replay_buffer.add(states[i],
+            #                             mask[i],
+            #                             actions[i].astype(np.float32),
+            #                             np.array(rewards[i], dtype=np.float32),
+            #                             states_next[i],
+            #                             np.array(veh_types_next[i], dtype=int),
+            #                             np.array(dones[i], dtype=bool))
             if veh_names_next[i].__len__() == 0:
                 states[i] = []
-            ep_reward += rewards[i].sum() / mask[i].sum() if sum(mask[i]) > 0 else 0
+            ep_reward += rewards[i].sum() if sum(mask[i]) > 0 else 0
 
         # 状态更新
         states = states_next.copy()
@@ -216,7 +235,16 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
         actor_loss = agent.actor_loss[-1]
         alpha_loss = agent.alpha_loss[-1]
 
+    ep_fuel_CAV = env.fuel_CAV / env.CAV_number
+    ep_comfort_CAV = env.comfort_CAV / env.CAV_number
+    ep_stop_CAV = env.stop_CAV / env.CAV_number
+    ep_tet_CAV = env.tet_CAV / env.CAV_number
+    ep_tit_CAV = env.tit_CAV / env.CAV_number
+    ep_tt_CAV = env.TT_CAV / env.CAV_number
+    ep_q_CAV = env.CAV_number
+
     ep_fuel = env.fuel_consumption / env.discharge_number
+    ep_comfort = env.comfort / env.discharge_number
     ep_stop = env.stop_time / env.discharge_number
     ep_tet = env.tet / env.discharge_number
     ep_tit = env.tit / env.discharge_number
@@ -224,16 +252,18 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
     ep_dt = env.desired_pass_error / env.discharge_number
     ep_q = env.discharge_number
 
-    ep_matrix = np.array([ep_fuel, ep_stop, ep_tet, ep_tit, ep_dt, ep_tt, ep_q])
+    ep_matrix = np.array([ep_fuel, ep_comfort, ep_stop, ep_tet, ep_tit, ep_dt, ep_tt, ep_q,
+                          ep_fuel_CAV, ep_comfort_CAV, ep_stop_CAV, ep_tet_CAV, ep_tit_CAV, ep_tt_CAV, ep_q_CAV,
+                          ep_reward, actor_loss, critic_loss, alpha_loss])
 
     return ep_reward, ep_matrix, actor_loss, critic_loss, alpha_loss, total_steps
 
 
 def train(opt):
 
-    opt.state_dim = 7
-    opt.action_dim = 2
-    opt.action_bound = torch.tensor([4, 1]).to(opt.device)
+    opt.state_dim = 10
+    opt.action_dim = 1
+    opt.action_bound = torch.tensor([4]).to(opt.device)
     opt.max_e_steps = 1e3
 
     # SUMO环境搭建
@@ -265,7 +295,7 @@ def train(opt):
     # 构建SAC智能体
     agent = SAC_agent(**vars(opt))
     if not opt.training and opt.control_strategy == 'RL':
-        agent.load("500",
+        agent.load("400",
                     opt.CAV_PR,
                     opt.time_step,
                     opt.control_strategy,
@@ -300,25 +330,16 @@ def train(opt):
                   ' critic_loss:', round(critic_loss, 2),
                   ' alpha_loss:', round(alpha_loss, 2) )
             print('Fuel (mL/v):', round(ep_matrix[0], 2),
-                  ' Stop (s/v):', round(ep_matrix[1], 2),
-                  ' TET (s/v):', round(ep_matrix[2], 2),
-                  ' TIT (s/v):', round(ep_matrix[3], 2),
-                  ' Dt (s/v):', round(ep_matrix[4], 2),
-                  ' Pass (v):', round(ep_matrix[6], 2),
-                  ' ATT (s/v):', round(ep_matrix[5], 2))
+                  ' Comfort (s/v):', round(ep_matrix[1], 2),
+                  ' Stop (s/v):', round(ep_matrix[2], 2),
+                  ' TET (s/v):', round(ep_matrix[3], 2),
+                  ' TIT (s/v):', round(ep_matrix[4], 2),
+                  ' Dt (s/v):', round(ep_matrix[5], 2),
+                  ' Pass (v):', round(ep_matrix[7], 2),
+                  ' ATT (s/v):', round(ep_matrix[6], 2))
             print('--------------------------------------------------------------------------------------------------------------------------------------')
 
-        training_curve.append((ep_reward,
-                               ep_matrix[0],
-                               ep_matrix[1],
-                               ep_matrix[2],
-                               ep_matrix[3],
-                               ep_matrix[4],
-                               ep_matrix[5],
-                               ep_matrix[6],
-                               actor_loss,
-                               critic_loss,
-                               alpha_loss,))
+        training_curve.append(ep_matrix)
 
     # if opt.training:
     #     agent.save('final',
@@ -331,12 +352,12 @@ def train(opt):
 
 
 if __name__ == "__main__":
-    Volume_List = [2000]
-    CAV_PR_list = [0.2, 0.6, 1.0]
-    for CAV_PR in CAV_PR_list:
-
-        opt.CAV_PR = CAV_PR
-        list = ['IDM', 'GLOSA', 'M_VDN']
+    Volume_List = [900]
+    CAV_PR_list = [0.2, 0.4, 0.6, 0.8, 1.0]
+    for CAVPR in CAV_PR_list:
+        opt.volume_per_leg[0] = Volume_List[0]
+        opt.CAV_PR = CAVPR
+        list = ['IDM', 'GLOSA']
 
         for i, CF_model in enumerate(list):
             if CF_model == 'IDM' or CF_model == 'GLOSA':
@@ -349,7 +370,7 @@ if __name__ == "__main__":
 
             training_curve = train(opt)
             # 保存训练曲线数据: .csv文件，
-            np.savetxt('testing_{}_CAVPR_{}_Volume_{}_gamma_{}_agent_{}_eposide_{}.csv'
+            np.savetxt('testing_{}_CAVPR_{}_Volume_{}_gamma_{}_agent_{}_eposide_{}_1.csv'
                       .format(CF_model,
                               opt.CAV_PR,
                               opt.volume_per_leg[0],
