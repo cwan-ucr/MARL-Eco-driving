@@ -16,7 +16,7 @@ from Trajectories_visualization import trajectories_plot
 # 环境设置
 parser = argparse.ArgumentParser()
 parser.add_argument('--device', type=str, default='cuda', help='running device: cuda or cpu')
-parser.add_argument('--seed', type=int, default=2024, help='random seed')
+parser.add_argument('--seed', type=int, default=1924, help='random seed')
 parser.add_argument('--training', type=bool, default=True, help='training or testing')
 parser.add_argument('--Env_name', type=str, default='SUMO_RL', help='name of simulation environment')
 parser.add_argument('--control_strategy', type=str, default='SUMO', help='Longitudinal control strategy for CAV, include SUMO, and RL')
@@ -33,13 +33,13 @@ parser.add_argument('--simulation_time', type=int, default=330, help='Simulation
 parser.add_argument('--refresh_progress_interval', type=int, default=30, help='Refresh the simulation progress in every K steps, in steps')
 
 # 车辆参数设置
-parser.add_argument('--lc_min_speed', type=float, default=4.0, help='Max wsimulation steps per episode, in miles per second')
+parser.add_argument('--lc_min_speed', type=float, default=2.0, help='Max simulation steps per episode, in miles per second')
 parser.add_argument('--TTC_min', type=float, default=0.8, help='Safety car-following time headway, in seconds')
 parser.add_argument('--TTC_max', type=float, default=3.0, help='Safety car-following time headway, in seconds')
 
 # RL训练设置
-parser.add_argument('--RL_agent', type=str, default='VDN', help='Policy of MARL, include ISAC, VDN, Q-MIX, and Q-transformer')
-parser.add_argument('--Max_episode', type=int, default=401, help='Max training episode')
+parser.add_argument('--RL_agent', type=str, default='VDN', help='Policy of MARL, include ISAC, VDN, and Q-transformer')
+parser.add_argument('--Max_episode', type=int, default=601, help='Max training episode')
 parser.add_argument('--save_episode', type=int, default=100, help='Model saving interval, in iterations.')
 parser.add_argument('--expert_episode', type=int, default=0, help='Max pretraining episode')
 parser.add_argument('--Max_ep_steps', type=int, default=330, help='Max training steps per episode, in steps')
@@ -126,26 +126,13 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
             if veh_names[i].__len__() == 0 or sum(mask[i]) == 0:
                 continue
 
-            if opt.RL_agent != 'ISAC':
-                agent.replay_buffer.add(states[i],
-                                        mask[i],
-                                        actions[i].astype(np.float32),
-                                        np.array(rewards[i], dtype=np.float32),
-                                        update_last_states[i],
-                                        np.array(veh_types[i], dtype=int),
-                                        np.array(dones[i], dtype=bool))
-            else:
-                for j, veh_i in enumerate(veh_names[i]):
-                    if mask[i][j] != 1:
-                        continue
-
-                    agent.replay_buffer.add(states[i][j],
-                                            mask[i][j],
-                                            actions[i][j].astype(np.float32),
-                                            np.array(rewards[i][j], dtype=np.float32),
-                                            update_last_states[i][j],
-                                            np.array(veh_types[i][j], dtype=int),
-                                            np.array(dones[i][j], dtype=bool))
+            agent.replay_buffer.add(states[i],
+                                    mask[i],
+                                    actions[i].astype(np.float32),
+                                    np.array(rewards[i], dtype=np.float32),
+                                    update_last_states[i],
+                                    np.array(veh_types[i], dtype=int),
+                                    np.array(dones[i], dtype=bool))
 
 
             # Add to replay buffer: transition state or future state
@@ -207,11 +194,6 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
                           env.lanes_entering_length,
                           env.light)
 
-    # 在NN_reset个episode重置SAC智能体
-    if (ep_i - opt.expert_episode) - opt.NN_reset == 0 and ep_i > opt.expert_episode:
-        agent.reset()
-        print('SAC agent has been reset')
-
     # 每save_episode个episode保存SAC智能体
     if ep_i % opt.save_episode == 0 and opt.training:
         agent.save(int(ep_i),
@@ -234,6 +216,7 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
     ep_tit_CAV = env.tit_CAV / env.CAV_number
     ep_tt_CAV = env.TT_CAV / env.CAV_number
     ep_q_CAV = env.CAV_number
+    ep_reward = ep_reward / ep_q_CAV
 
     ep_fuel = env.fuel_consumption / env.discharge_number
     ep_comfort = env.comfort / env.discharge_number
@@ -253,9 +236,9 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
 
 def train(opt):
 
-    opt.state_dim = 10
-    opt.action_dim = 2
-    opt.action_bound = torch.tensor([4, 1]).to(opt.device)
+    opt.state_dim = 17
+    opt.action_dim = 3
+    opt.action_bound = torch.tensor([4, 1, 1]).to(opt.device)
     opt.max_e_steps = 1e3
 
     # SUMO环境搭建
@@ -287,7 +270,7 @@ def train(opt):
     # 构建SAC智能体
     agent = SAC_agent(**vars(opt))
     if not opt.training and opt.control_strategy == 'RL':
-        agent.load("400",
+        agent.load("final",
                     opt.CAV_PR,
                     opt.time_step,
                     opt.control_strategy,
@@ -335,21 +318,21 @@ def train(opt):
 
     if opt.training:
         agent.save('final',
-                            opt.CAV_PR,
-                            opt.time_step,
-                            opt.control_strategy,
-                            opt.RL_agent)
+                    opt.CAV_PR,
+                    opt.time_step,
+                    opt.control_strategy,
+                    opt.RL_agent)
 
     return training_curve
 
 
 if __name__ == "__main__":
-    Volume_List = [900]
-    CAV_PR_list = [0.2, 0.4, 0.6, 0.8, 1.0]
+    Volume_List = [1440]
+    CAV_PR_list = [1.0]
     for CAVPR in CAV_PR_list:
         opt.volume_per_leg[0] = Volume_List[0]
         opt.CAV_PR = CAVPR
-        list = ['IDM', 'GLOSA']
+        list = ['VDN']
 
         for i, CF_model in enumerate(list):
             if CF_model == 'IDM' or CF_model == 'GLOSA':
@@ -360,6 +343,7 @@ if __name__ == "__main__":
                 opt.CF_model = 'IDM'
                 opt.RL_agent = CF_model
 
+            opt.training = True
             training_curve = train(opt)
             # 保存训练曲线数据: .csv文件，
             np.savetxt('testing_{}_CAVPR_{}_Volume_{}_gamma_{}_agent_{}_eposide_{}_1.csv'

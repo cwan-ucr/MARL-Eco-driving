@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-
+np.bool = np.bool_
 
 # 经验回放池，随机采样
 class replay_buffer:
@@ -44,8 +44,7 @@ class replay_buffer:
                 torch.from_numpy(self.reward[ind]).to(dtype=torch.float32, device=self.device),
                 torch.from_numpy(self.done[ind]).to(dtype=torch.bool, device=self.device),
                 torch.from_numpy(self.state_next[ind]).to(dtype=torch.float32, device=self.device),
-                torch.from_numpy(self.mask_next[ind]).to(dtype=torch.int32, device=self.device),
-                torch.from_numpy(self.action[ind]).to(dtype=torch.float32, device=self.device))
+                torch.from_numpy(self.mask_next[ind]).to(dtype=torch.int32, device=self.device))
 
     def len(self):
         return self.size

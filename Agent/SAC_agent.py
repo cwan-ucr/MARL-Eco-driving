@@ -33,7 +33,8 @@ class SAC_agent():
              self.hidden_dim,
              self.action_dim,
              self.dropout,
-             self.beta).to(self.device)
+             self.beta,
+             self.RL_agent).to(self.device)
 
 
         # 优化器设置
@@ -50,20 +51,12 @@ class SAC_agent():
             params.requires_grad = False
 
         # 定义经验回放池
-        if self.RL_agent != 'ISAC':
-            self.replay_buffer = replay_buffer(self.buffer_size,
-                                               self.batch_size,
-                                               self.state_dim,
-                                               self.action_dim,
-                                               self.max_nodes,
-                                               self.device)
-        else:
-            self.replay_buffer = replay_buffer_ISAC(self.buffer_size,
-                                                    self.batch_size,
-                                                    self.state_dim,
-                                                    self.action_dim,
-                                                    self.max_nodes,
-                                                    self.device)
+        self.replay_buffer = replay_buffer(self.buffer_size,
+                                            self.batch_size,
+                                            self.state_dim,
+                                            self.action_dim,
+                                            self.max_nodes,
+                                            self.device)
 
         # 定义loss收集器
         self.actor_loss = []
@@ -113,7 +106,7 @@ class SAC_agent():
             target_q = rewards + self.gamma * (~dones) * \
                     (torch.min(q1_value, q2_value) + self.log_alpha.exp() * entropy)
             target_q = target_q * next_mask
-        elif self.RL_agent == 'VDN':
+        elif self.RL_agent == 'VDN' or self.RL_agent == 'QMHA':
             # Value-Decomposition Network
             reward = rewards.sum(dim=-1)
             q_next = self.gamma * (~dones) * \
@@ -121,10 +114,10 @@ class SAC_agent():
             target_q = reward + q_next.sum(dim=-1)
         elif self.RL_agent == 'M_VDN':
             # Mean Value-Decomposition Network
-            reward = rewards.sum(dim=-1) / next_mask.sum(dim=-1)
+            reward = rewards.sum(dim=-1)
             q_next = self.gamma * (~dones) * \
                     (torch.min(q1_value, q2_value) + self.log_alpha.exp() * entropy)
-            target_q = reward + q_next.sum(dim=-1) / next_mask.sum(dim=-1)
+            target_q = reward + q_next.sum(dim=-1)
 
         return target_q
 
@@ -145,9 +138,11 @@ class SAC_agent():
         states, mask, actions, rewards, dones, next_states, mask_next = \
             self.replay_buffer.sample()
 
+        valid = mask.sum(dim=-1).clamp_min(1).float()
         # TD error估计, Q网络更新(critic)
         # ----------------------------- ↓↓↓↓↓ Update QValue Net ↓↓↓↓↓ ------------------------------#
-        Q_target = self.calc_target(rewards, next_states, mask_next, dones)
+        with torch.no_grad():
+            Q_target = self.calc_target(rewards, next_states, mask_next, dones)
 
         Q1_current, Q2_current = self.critic(states, actions, mask)
 
@@ -157,15 +152,19 @@ class SAC_agent():
             Q1_current = Q1_current * mask
             Q2_current = Q2_current * mask
             td_error = (1 / car_count) * ((Q_target - Q1_current) ** 2).sum() \
-                        + (1 / car_count) * ((Q2_current - Q1_current) ** 2).sum()
-        elif self.RL_agent == 'VDN':
+                        + (1 / car_count) * ((Q_target - Q2_current) ** 2).sum()
+        elif self.RL_agent == 'VDN' or self.RL_agent == 'QMHA':
             # Value-Decomposition Network
             td_error = (F.mse_loss(Q_target, Q1_current.sum(dim=-1))
                         + F.mse_loss(Q_target, Q2_current.sum(dim=-1)))
+            # td_error = (F.huber_loss(Q_target, Q1_current.sum(dim=-1))
+            #             + F.huber_loss(Q_target, Q2_current.sum(dim=-1)))
+                    
         elif self.RL_agent == 'M_VDN':
             # Mean Value-Decomposition Network
-            td_error = (F.mse_loss(Q_target, Q1_current.sum(dim=-1) / mask.sum(dim=-1))
-                        + F.mse_loss(Q_target, Q2_current.sum(dim=-1) / mask.sum(dim=-1)))
+            td1 = (Q_target - Q1_current.sum(dim=-1)) ** 2
+            td2 = (Q_target - Q2_current.sum(dim=-1)) ** 2
+            td_error = 10 *(td1 / valid).mean() + 10 * (td2 / valid).mean()
 
 
         # 计算Q网络损失，反向传播，使用梯度剪切避免梯度爆炸
@@ -189,16 +188,17 @@ class SAC_agent():
 
             if self.RL_agent == 'ISAC':
                 actor_loss = (1 / car_count) * (self.log_alpha.exp() * new_log_prob - min_q).sum()
-            elif self.RL_agent == 'VDN':
+            elif self.RL_agent == 'VDN' or self.RL_agent == 'QMHA':
                 actor_loss = (self.log_alpha.exp() * new_log_prob.sum(dim=-1) - min_q.sum(dim=-1)).mean()
             elif self.RL_agent == 'M_VDN':
-                actor_loss = ((self.log_alpha.exp() * new_log_prob.sum(dim=-1) - min_q.sum(dim=-1)) / mask.sum(dim=-1)).mean()
+                actor_term = self.log_alpha.exp() * new_log_prob.sum(dim=-1) - min_q.sum(dim=-1)
+                actor_loss = 10 * (actor_term / valid).mean()
 
             self.actor_loss.append(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.grad_clip)
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip)
             self.actor_optimizer.step()
 
             for params in self.critic.parameters(): params.requires_grad = True
@@ -228,7 +228,7 @@ class SAC_agent():
         curr_path = os.path.dirname(__file__)
         parent_path = os.path.dirname(curr_path)
 
-        output_dir = parent_path + "/model./{}_{}./".format(control_strategy, RL_agent)
+        output_dir = parent_path + "/model/{}_{}/".format(control_strategy, RL_agent)
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
@@ -245,7 +245,7 @@ class SAC_agent():
         curr_path = os.path.dirname(__file__)
         parent_path = os.path.dirname(curr_path)
 
-        input_dir = parent_path + "/model./{}_{}./".format(control_strategy, RL_agent)
+        input_dir = parent_path + "/model/{}_{}/".format(control_strategy, RL_agent)
 
         if not os.path.exists(input_dir):
             os.makedirs(input_dir)

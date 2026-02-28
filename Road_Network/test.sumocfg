@@ -1,7 +1,7 @@
 <configuration>
     <input>
-        <net-file value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network\test.net.xml"/>
-        <route-files value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network\test.rou.xml"/>
+        <net-file value="/home/ziye/Changxin/MARL_Eco-driving/Code/Code/Road_Network/test.net.xml"/>
+        <route-files value="/home/ziye/Changxin/MARL_Eco-driving/Code/Code/Road_Network/test.rou.xml"/>
     </input>
     <time>
         <begin value="0"/>

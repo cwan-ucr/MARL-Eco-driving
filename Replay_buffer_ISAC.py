@@ -16,7 +16,6 @@ class replay_buffer_ISAC:
         self.reward = np.zeros((buffer_size), dtype=np.float32)
         self.done = np.zeros((buffer_size), dtype=np.bool)
         self.state_next = np.zeros((buffer_size, state_dim), dtype=np.float32)
-        self.mask_next = np.zeros((buffer_size), dtype=np.int32)
 
 
     def add(self, state, action, reward, state_next, done):

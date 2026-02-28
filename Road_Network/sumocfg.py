@@ -104,8 +104,8 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, warmup_time, CF_
 
         print("""<routes>
 
-        <vType id = 'CAV' vClass="private" tau="1.6" accel="4.0" decel="4.0" color="#00FF00" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
-        <vType id = 'HDV' vClass="private" tau="1.6" accel="4.0" decel="4.0" color="#FF0000" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
+        <vType id = 'CAV' vClass="passenger" tau="1.4" accel="4.0" decel="4.0" color="#00FF00" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
+        <vType id = 'HDV' vClass="passenger" tau="1.6" accel="4.0" decel="4.0" color="#FF0000" speedFactor="1.0" sigma="0.2" length="5.0" minGap="1.0" maxSpeed="18.00" guiShape="passenger"/>
 
         <route id="N2S" edges="NS -SN"/>
         <route id="S2N" edges="SN -NS"/>
@@ -134,17 +134,19 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, warmup_time, CF_
 
         for i in range(car_count_total):
             veh_type = 'HDV'
+            speed = np.random.normal(loc=10, scale=1, size=1).item()
             if np.random.rand() <= CAV_PR:
                 veh_type = 'CAV'
 
             if veh_type == 'HDV' or CF_model == 'IDM':
-                print('        <vehicle id="%s_%i" type="%s" route="%s" depart="%i" departSpeed="10" departLane="best"/>'
-                      % (depart_list[i][0], i + 1, veh_type, depart_list[i][0], depart_list[i][1]), file=route)
+                print('        <vehicle id="%s_%i" type="%s" route="%s" depart="%i" departSpeed="%.2f" departLane="best"/>'
+                      % (depart_list[i][0], i + 1, veh_type, depart_list[i][0], depart_list[i][1], speed), file=route)
             else:
-                print('        <vehicle id="%s_%i" type="%s" route="%s" depart="%i" departSpeed="10" departLane="best">'
-                      % (depart_list[i][0], i + 1, veh_type, depart_list[i][0], depart_list[i][1]), file=route)
+                print('        <vehicle id="%s_%i" type="%s" route="%s" depart="%i" departSpeed="%.2f" departLane="best">'
+                      % (depart_list[i][0], i + 1, veh_type, depart_list[i][0], depart_list[i][1], speed), file=route)
                 print('            <param key="has.glosa.device" value="true"/>', file=route)
                 print('            <param key="device.glosa.range" value="170"/>', file=route)
+                print('            <param key="device.glosa.min-speed" value="2"/>', file=route)
                 print('        </vehicle>', file=route)
 
 
