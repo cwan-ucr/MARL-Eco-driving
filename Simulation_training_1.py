@@ -24,11 +24,10 @@ parser.add_argument('--CF_model', type=str, default='IDM', help='choose the CF m
 parser.add_argument('--Need_transition_state', type=bool, default=True, help='whether need to transition state, True or False')
 
 # SUMO交通流参数设置
-parser.add_argument('--volume_per_leg', type=tuple, default=[2000, 0, 0, 0], help='Traffic volume per lane, in 3600 steps, 600: W2E, 0: E2W, 0: N2S, and 0: S2N')
+parser.add_argument('--volume_per_leg', type=tuple, default=[1800, 0, 0, 0], help='Traffic volume per lane, in 3600 steps, 600: W2E, 0: E2W, 0: N2S, and 0: S2N')
 parser.add_argument('--time_step', type=float, default=0.5, help='update interval for environment, steps per second')
 parser.add_argument('--CAV_PR', type=float, default=1.0, help='CAV penetration rate')
 parser.add_argument('--warmup_time', type=int, default=30, help='Warmup steps before applying simulation, in second')
-parser.add_argument('--perception_region', type=float, default=25.0, help='Perception of CAVs on-board sensor, information of HDVs can be shared if in the region, in miles')
 parser.add_argument('--dangerous_time', type=float, default=0.0, help='Dangerous time when green start and yellow end, in seconds')
 parser.add_argument('--simulation_time', type=int, default=330, help='Simulation steps per episode, in steps')
 parser.add_argument('--refresh_progress_interval', type=int, default=30, help='Refresh the simulation progress in every K steps, in steps')
@@ -39,12 +38,11 @@ parser.add_argument('--TTC_min', type=float, default=0.8, help='Safety car-follo
 parser.add_argument('--TTC_max', type=float, default=3.0, help='Safety car-following time headway, in seconds')
 
 # RL训练设置
-parser.add_argument('--RL_agent', type=str, default='M_VDN', help='Policy of MARL, include ISAC, VDN, and M_VDN')
-parser.add_argument('--NN_reset', type=int, default=4000, help='Model reset at K-th episode, in iterations')
+parser.add_argument('--RL_agent', type=str, default='VDN', help='Policy of MARL, include ISAC, VDN, Q-MIX, and Q-transformer')
 parser.add_argument('--Max_episode', type=int, default=401, help='Max training episode')
 parser.add_argument('--save_episode', type=int, default=100, help='Model saving interval, in iterations.')
 parser.add_argument('--expert_episode', type=int, default=0, help='Max pretraining episode')
-parser.add_argument('--Max_ep_steps', type=int, default=270, help='Max training steps per episode, in steps')
+parser.add_argument('--Max_ep_steps', type=int, default=330, help='Max training steps per episode, in steps')
 parser.add_argument('--eval_interval', type=int, default=100, help='Model evaluating interval, trajectories plot, in episodes.')
 parser.add_argument('--Dynamic_target_entropy', type=bool, default=False, help='Whether need to dynamic target entropy TE = -dim(A_eff), True or False')
 parser.add_argument('--state_dim', type=int, default=10, help='Feature dim of each node')
@@ -107,12 +105,6 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
             mask_direction_i = np.array(veh_types_direction_i, dtype=int)
 
             mask[i] = mask_direction_i
-
-            # 随机采样
-            if ep_i < opt.expert_episode and opt.training and opt.CF_model == 'Random':
-                actions_direction_i = env.action_sampling()
-                actions[i] = actions_direction_i
-                continue
 
             actions_direction_i = agent.take_action(states_direction_i, mask_direction_i)
 
@@ -262,8 +254,8 @@ def run_simulations(env, agent, total_steps, ep_i, opt):
 def train(opt):
 
     opt.state_dim = 10
-    opt.action_dim = 1
-    opt.action_bound = torch.tensor([4]).to(opt.device)
+    opt.action_dim = 2
+    opt.action_bound = torch.tensor([4, 1]).to(opt.device)
     opt.max_e_steps = 1e3
 
     # SUMO环境搭建
@@ -341,12 +333,12 @@ def train(opt):
 
         training_curve.append(ep_matrix)
 
-    # if opt.training:
-    #     agent.save('final',
-    #                         opt.CAV_PR,
-    #                         opt.time_step,
-    #                         opt.control_strategy,
-    #                         opt.RL_agent)
+    if opt.training:
+        agent.save('final',
+                            opt.CAV_PR,
+                            opt.time_step,
+                            opt.control_strategy,
+                            opt.RL_agent)
 
     return training_curve
 

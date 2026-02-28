@@ -53,8 +53,8 @@ class SUMOEnv:
         self.entering_cycle_pass_count = [0, 0, 0, 0, 0, 0]
         self.departing_lanes = ['-EW_0', '-EW_1', '-EW_0', '-WE_0', '-WE_1', '-WE_0',
                                 '-SN_0', '-NS_0']
-        self.conflict_lanes = [':J1_4_0', ':J1_4_1', ':J1_4_2', ':J1_1_0', ':J1_1_1', ':J1_4_2',
-                               ':J1_0_0', ':J1_3_0']
+        self.conflict_lanes = [':J1_5_0', ':J1_5_1', ':J1_5_2', ':J1_1_0', ':J1_1_1', ':J1_1_2',
+                               ':J1_0_0', ':J1_4_0']
         self.lanes_entering_length = []
         self.lanes_entering_Max_speed = []
         self.lanes_conflict_length = []
@@ -739,14 +739,6 @@ class SUMOEnv:
                  light_cosine,
                  light_cosine_d]
         state = np.concatenate([state, ego_driving_mode],dtype=np.float32)
-
-        # state = [ego_position / Lane_length,
-        #           lane_id / self.num_lanes,
-        #           ego_speed / max_speed,
-        #           space_gap / Lane_length,
-        #           speed_error / max_speed,
-        #           green_remain_ratio,
-        #           green_sw_ratio]
 
         return state
 

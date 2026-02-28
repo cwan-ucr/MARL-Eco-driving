@@ -12,14 +12,12 @@ class Policy_Network(nn.Module):
                  action_dim,
                  action_bound,
                  dropout,
-                 beta,
-                 training):
+                 beta):
         # 定义GAT神经网络结构
         super(Policy_Network, self).__init__()
         self.dropout = dropout
         self.beta = beta
         self.hidden_dim = hidden_dim
-        self.training = training
 
         self.L1 = nn.Linear(feature_dim, hidden_dim)
         self.LN1_MLP = nn.LayerNorm(hidden_dim, bias=False)
@@ -30,9 +28,9 @@ class Policy_Network(nn.Module):
         self.L3 = nn.Linear(hidden_dim, hidden_dim )
         self.LN3 = nn.LayerNorm(hidden_dim, bias=False)
 
-        self.L4 = nn.Linear(hidden_dim, action_dim * 2)
+        self.L4 = nn.Linear(hidden_dim, action_dim)
 
-        self.ResNet = nn.Linear(feature_dim, action_dim * 2, bias=False)
+        self.ResNet = nn.Linear(feature_dim, action_dim, bias=False)
 
         self.action_bound = action_bound
         self.action_dim = action_dim
@@ -56,51 +54,15 @@ class Policy_Network(nn.Module):
 
         # Linear 4
         x_output = self.L4(x3) + self.ResNet(x)
-
+        action = torch.tanh(x_output)
 
         # 拆分输出为均值和标准差
-        if x_output.shape[1] == self.action_dim * 2:
-            x_mu = x_output[:, :self.action_dim]
-            x_log_std = torch.clamp(x_output[:, self.action_dim:],
-                                    min=-20,
-                                    max=2)
-        else:
-            x_mu = x_output[:, :, :self.action_dim]
-            x_log_std = torch.clamp(x_output[:, :, self.action_dim:],
-                                    min=-20,
-                                    max=2)
-
-        x_std = torch.exp(x_log_std + 1e-6)
-
-        if torch.any(torch.isnan(x_mu)):
-            print("x_mu contains NaN values")
-            x_mu = torch.nan_to_num(x_mu, nan=1e-3)  # 替换 NaN
-        if torch.any(torch.isnan(x_std)):
-            print("x_std contains NaN values")
-            x_std = torch.nan_to_num(x_mu, nan=1.0) + 1e-6  # 确保标准差为正
-
-        dist = Normal(x_mu, x_std)
-        u = dist.rsample() if self.training else x_mu
-        action = torch.tanh(u)
-        log_prob = dist.log_prob(u)
-
-        # 掩码机制，将无效的log_prob置为0
-        mask = mask.unsqueeze(-1)
-
-        # 修正log_prob, 根据tanh变换
-        log_prob -= torch.log(1 - action.pow(2) + 1e-7)
-        log_prob = log_prob * mask
-
-        if log_prob.shape[1] == self.action_dim:
-            log_prob = (log_prob * mask).sum(dim=1, keepdim=True)
-        else:
-            log_prob = (log_prob * mask).sum(dim=2, keepdim=True)
 
         action = self.action_bound * action
 
         action = action.to(dtype=torch.float32)
 
-        return action, log_prob.squeeze(-1)
+        return action
 
 class Critic_Network(nn.Module):
     def __init__(self,
@@ -154,9 +116,9 @@ class QValue_Network(nn.Module):
         self.beta = beta
 
         self.L1 = nn.Linear(feature_dim + action_dim, hidden_dim)
-        self.LN1 = nn.LayerNorm(hidden_dim, bias=False)
-
+        self.LN1_MLP = nn.LayerNorm(hidden_dim, bias=False)
         self.L2 = nn.Linear(hidden_dim, hidden_dim)
+
         self.LN_2 = nn.LayerNorm(hidden_dim, bias=False)
 
         self.L3 = nn.Linear(hidden_dim, hidden_dim)
@@ -167,11 +129,14 @@ class QValue_Network(nn.Module):
 
     def forward(self, x, a, mask):
         # State and Action concat
-        cat = torch.cat([x, a], dim=-1)
+        if x.shape[1] == self.feature_dim:
+            cat = torch.cat([x, a], dim=1)
+        else:
+            cat = torch.cat([x, a], dim=2)
 
         # Linear 1
         x1 = self.L1(cat) * mask.unsqueeze(-1)
-        x1 = self.LN1(x1)
+        x1 = self.LN1_MLP(x1)
         x1 = F.leaky_relu(x1, self.beta)
 
         # Linear 2
@@ -187,6 +152,9 @@ class QValue_Network(nn.Module):
         x_output = self.L4(x3)
         x_output = x_output + self.ResNet(cat)
 
-        q_nodes = x_output * mask.unsqueeze(-1)
+        if x2.shape[1] == 1:
+            q_nodes = x_output.t() * mask
+        else:
+            q_nodes = x_output * mask.unsqueeze(-1)
 
         return q_nodes.squeeze(-1)

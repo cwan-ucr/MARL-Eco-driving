@@ -12,14 +12,12 @@ class Policy_Network(nn.Module):
                  action_dim,
                  action_bound,
                  dropout,
-                 beta,
-                 training):
+                 beta):
         # 定义GAT神经网络结构
         super(Policy_Network, self).__init__()
         self.dropout = dropout
         self.beta = beta
         self.hidden_dim = hidden_dim
-        self.training = training
 
         self.L1 = nn.Linear(feature_dim, hidden_dim)
         self.LN1_MLP = nn.LayerNorm(hidden_dim, bias=False)
@@ -80,9 +78,9 @@ class Policy_Network(nn.Module):
             x_std = torch.nan_to_num(x_mu, nan=1.0) + 1e-6  # 确保标准差为正
 
         dist = Normal(x_mu, x_std)
-        u = dist.rsample() if self.training else x_mu
-        action = torch.tanh(u)
-        log_prob = dist.log_prob(u)
+        normal_sample = dist.rsample()
+        action = torch.tanh(normal_sample)
+        log_prob = dist.log_prob(normal_sample)
 
         # 掩码机制，将无效的log_prob置为0
         mask = mask.unsqueeze(-1)
@@ -154,9 +152,9 @@ class QValue_Network(nn.Module):
         self.beta = beta
 
         self.L1 = nn.Linear(feature_dim + action_dim, hidden_dim)
-        self.LN1 = nn.LayerNorm(hidden_dim, bias=False)
-
+        self.LN1_MLP = nn.LayerNorm(hidden_dim, bias=False)
         self.L2 = nn.Linear(hidden_dim, hidden_dim)
+
         self.LN_2 = nn.LayerNorm(hidden_dim, bias=False)
 
         self.L3 = nn.Linear(hidden_dim, hidden_dim)
@@ -167,11 +165,14 @@ class QValue_Network(nn.Module):
 
     def forward(self, x, a, mask):
         # State and Action concat
-        cat = torch.cat([x, a], dim=-1)
+        if x.shape[1] == self.feature_dim:
+            cat = torch.cat([x, a], dim=1)
+        else:
+            cat = torch.cat([x, a], dim=2)
 
         # Linear 1
         x1 = self.L1(cat) * mask.unsqueeze(-1)
-        x1 = self.LN1(x1)
+        x1 = self.LN1_MLP(x1)
         x1 = F.leaky_relu(x1, self.beta)
 
         # Linear 2
@@ -187,6 +188,9 @@ class QValue_Network(nn.Module):
         x_output = self.L4(x3)
         x_output = x_output + self.ResNet(cat)
 
-        q_nodes = x_output * mask.unsqueeze(-1)
+        if x2.shape[1] == 1:
+            q_nodes = x_output.t() * mask
+        else:
+            q_nodes = x_output * mask.unsqueeze(-1)
 
         return q_nodes.squeeze(-1)

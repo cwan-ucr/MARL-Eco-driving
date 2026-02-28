@@ -30,6 +30,7 @@ class replay_buffer:
         self.state_next[self.ptr] = state_next
         self.mask_next[self.ptr] = mask_next
         self.done[self.ptr] = done
+        self.goal_state[self.ptr] = state.reshape(-1)
 
         self.ptr = (self.ptr + 1) % self.memory
         self.size = min(self.size + 1, self.memory)

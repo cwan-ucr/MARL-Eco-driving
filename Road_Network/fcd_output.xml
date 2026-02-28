@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-08-06 09:16:34 by Eclipse SUMO sumo Version 1.21.0
+<sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network\test.net.xml"/>
+        <route-files value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network\test.rou.xml"/>
+    </input>
+
+    <output>
+        <fcd-output value="F:\Research\Paper\[Experiment]TR_PartC_MARL_Eco_driving\Code\Road_Network/fcd_output.xml"/>
+    </output>
+
+    <time>
+        <begin value="0"/>
+        <end value="600"/>
+        <step-length value="0.5"/>
+    </time>
+
+    <processing>
+        <waiting-time-memory value="600"/>
+    </processing>
+
+    <report>
+        <no-step-log value="true"/>
+    </report>
+
+    <traci_server>
+        <remote-port value="9790"/>
+    </traci_server>
+
+</sumoConfiguration>
+-->
+
+<fcd-export xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/fcd_file.xsd">
+</fcd-export>
