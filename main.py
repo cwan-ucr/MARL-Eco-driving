@@ -284,6 +284,7 @@ def train(opt):
     for ep_i in range(opt.Max_episode):
 
         env_seed += 1
+        opt.CAV_PR = 0.8 * np.random.rand() + 0.1 # 每个episode随机生成一个CAV渗透率，范围在0.1到0.9之间，增加训练的多样性
         generate_cfg_file(time_step = opt.time_step)
         if ep_i > opt.expert_episode and opt.control_strategy == 'RL':
             opt.CF_model = 'IDM'
@@ -342,7 +343,7 @@ if __name__ == "__main__":
                 opt.control_strategy = 'RL'
                 opt.CF_model = 'IDM'
                 opt.RL_agent = CF_model
-
+            
             opt.training = True
             training_curve = train(opt)
             # 保存训练曲线数据: .csv文件，
@@ -353,4 +354,5 @@ if __name__ == "__main__":
                               opt.gamma,
                               opt.RL_agent,
                               opt.Max_episode),
+
                               np.array(training_curve), delimiter=',')
