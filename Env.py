@@ -706,7 +706,7 @@ class SUMOEnv:
         self.tet_CAV += (ttc_count*mask).sum() * self.time_step
         self.tit_CAV += (tit*mask).sum() * self.time_step
         self.stop_CAV += (stop*mask).sum() * self.time_step
-        self.total_travel_time += mask.sum() * self.time_step
+        self.TT_CAV += mask.sum() * self.time_step
         
         return
        
@@ -1080,3 +1080,4 @@ class light:
     def reset(self):
         self.cycle_pass_count = []
         self.lane_pass_count = []
+
