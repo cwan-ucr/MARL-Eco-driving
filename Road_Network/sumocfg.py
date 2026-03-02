@@ -146,11 +146,11 @@ def generate_rou_file(simulation_steps, volume_per_leg, CAV_PR, warmup_time, CF_
                       % (depart_list[i][0], i + 1, veh_type, depart_list[i][0], depart_list[i][1], speed), file=route)
                 print('            <param key="has.glosa.device" value="true"/>', file=route)
                 print('            <param key="device.glosa.range" value="170"/>', file=route)
-                print('            <param key="device.glosa.min-speed" value="2"/>', file=route)
                 print('        </vehicle>', file=route)
 
 
         print('</routes>', file=route)
 
     random.seed(seed)
+
     np.random.seed(seed)
