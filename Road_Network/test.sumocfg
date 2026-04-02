@@ -1,0 +1,14 @@
+<configuration>
+    <input>
+        <net-file value="/home/ziye/Changxin/MARL_Eco-driving/Code/Code/Road_Network/test.net.xml"/>
+        <route-files value="/home/ziye/Changxin/MARL_Eco-driving/Code/Code/Road_Network/test.rou.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="600"/>
+        <step-length value="0.5"/>
+    </time>
+    <output>
+        <fcd-output value="fcd_output.xml" />
+    </output>  
+</configuration>
